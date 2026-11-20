@@ -71,7 +71,7 @@ export async function seedApp(
       opts.trialDays ?? 30,
       opts.offlineGraceDays ?? 30,
       opts.inactiveReleaseDays ?? 90,
-      opts.resetLimit ?? 3,
+      opts.resetLimit ?? 5,
       opts.resetWindowDays ?? 30,
     )
     .run();

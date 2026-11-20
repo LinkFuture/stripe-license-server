@@ -31,7 +31,7 @@ export async function createApp(env: Env, body: Record<string, unknown>, now: Da
   const trialDays = optInt(body.trial_days, 30, 0, 3650);
   const grace = optInt(body.offline_grace_days, 30, 0, 3650);
   const inactive = optInt(body.inactive_release_days, 90, 0, 3650);
-  const resetLimit = optInt(body.reset_limit, 3, 0, 100);
+  const resetLimit = optInt(body.reset_limit, 5, 0, 100);
   const resetWindow = optInt(body.reset_window_days, 30, 1, 3650);
   if (
     trialDays === null ||

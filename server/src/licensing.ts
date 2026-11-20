@@ -350,6 +350,14 @@ export async function recover(opts: {
   return response;
 }
 
+async function assertResetAllowed(db: D1Database, app: AppRow, licenseId: number, now: Date): Promise<void> {
+  if (app.reset_limit === 0) return;
+  const since = addDays(now, -app.reset_window_days);
+  if ((await resetCount(db, licenseId, since)) >= app.reset_limit) {
+    throw new HttpError(429, "reset_limit_reached");
+  }
+}
+
 async function resetCount(db: D1Database, licenseId: number, sinceIso: string): Promise<number> {
   const row = await db
     .prepare(
@@ -376,10 +384,7 @@ export async function requestReset(opts: {
   const { license } = await loadLicense(env.DB, app, body.key);
   assertActive(license);
   if (!env.LICENSE_ENCRYPTION_KEY) throw new HttpError(500, "encryption_key_missing");
-  const since = addDays(now, -app.reset_window_days);
-  if ((await resetCount(env.DB, license.id, since)) >= app.reset_limit) {
-    throw new HttpError(429, "reset_limit_reached");
-  }
+  await assertResetAllowed(env.DB, app, license.id, now);
   const lim = limits(env);
   const code = randomDigits(6);
   const codeHash = await hashCode(code, license.id, env.LICENSE_ENCRYPTION_KEY);
@@ -420,10 +425,7 @@ export async function confirmReset(opts: {
   const { license } = await loadLicense(env.DB, app, body.key);
   assertActive(license);
   if (!env.LICENSE_ENCRYPTION_KEY) throw new HttpError(500, "encryption_key_missing");
-  const since = addDays(now, -app.reset_window_days);
-  if ((await resetCount(env.DB, license.id, since)) >= app.reset_limit) {
-    throw new HttpError(429, "reset_limit_reached");
-  }
+  await assertResetAllowed(env.DB, app, license.id, now);
   const code = str(body.code, 12);
   if (!code || !/^\d{6}$/.test(code)) throw new HttpError(400, "invalid_code");
   const row = await env.DB

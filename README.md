@@ -84,12 +84,22 @@ If the first launch is offline, the client starts the trial from the local insta
 - Activating a machine that is already on the license refreshes `last_seen_at` and does not consume another slot.
 - When `used >= max_machines`, `activate` returns `machine_limit_reached` and the list of machines (name, platform, `last_seen_at`, and whether each one counts).
 - `deactivate` removes the current machine.
-- `reset-machines` emails a 6-digit code to the buyer, then deletes every activation and activates the machine that confirmed the code. Codes expire in 15 minutes and allow 5 attempts. The default quota is 3 successful resets per license per rolling 30 days (`apps.reset_limit`, `apps.reset_window_days`).
+- `reset-machines` emails a 6-digit code to the buyer, then deletes every activation and activates the machine that confirmed the code. Codes expire in 15 minutes and allow 5 attempts. The quota is per app: `apps.reset_limit` successful resets per license inside `apps.reset_window_days` (defaults 5 and 30). `reset_limit = 0` means unlimited.
 - An activation whose `last_seen_at` is older than `apps.inactive_release_days` (default 90, `0` disables the rule) no longer counts toward `max_machines`. The row is kept.
 
 ## Schema
 
 Apply `server/migrations/0001_init.sql`. Timestamps are ISO-8601 UTC text.
+
+Per-app columns on `apps` (set on `POST /admin/apps` or `PATCH /admin/apps/{slug}`):
+
+| Column | Default | Meaning |
+| --- | --- | --- |
+| `trial_days` | 30 | Trial length for a new machine |
+| `offline_grace_days` | 30 | License JWT lifetime after each online refresh |
+| `inactive_release_days` | 90 | Machines quieter than this no longer count toward `max_machines`. `0` disables the rule |
+| `reset_limit` | 5 | Self-service device resets per license in the rolling window. `0` is unlimited |
+| `reset_window_days` | 30 | Length of that rolling window |
 
 ```sql
 CREATE TABLE apps (
@@ -101,7 +111,7 @@ CREATE TABLE apps (
   trial_days INTEGER NOT NULL DEFAULT 30 CHECK (trial_days >= 0),
   offline_grace_days INTEGER NOT NULL DEFAULT 30 CHECK (offline_grace_days >= 0),
   inactive_release_days INTEGER NOT NULL DEFAULT 90 CHECK (inactive_release_days >= 0),
-  reset_limit INTEGER NOT NULL DEFAULT 3 CHECK (reset_limit >= 0),
+  reset_limit INTEGER NOT NULL DEFAULT 5 CHECK (reset_limit >= 0),
   reset_window_days INTEGER NOT NULL DEFAULT 30 CHECK (reset_window_days >= 1),
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled')),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))

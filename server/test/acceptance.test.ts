@@ -18,6 +18,27 @@ import {
   checkoutPayload,
 } from "./helpers";
 
+async function completeReset(
+  app: ReturnType<typeof handler>,
+  runtime: Awaited<ReturnType<typeof seedApp>>["env"],
+  key: string,
+  hash: string,
+): Promise<void> {
+  emails.length = 0;
+  const requested = await postJson(app, runtime, "/v1/myapp/reset-machines/request", { key });
+  expect(requested.status).toBe(200);
+  const code = emails[0]?.text.match(/(\d{6})/)?.[1];
+  expect(code).toBeTruthy();
+  const confirmed = await postJson(app, runtime, "/v1/myapp/reset-machines/confirm", {
+    key,
+    code,
+    machine_hash: hash,
+    machine_name: "Current",
+  });
+  expect(confirmed.status).toBe(200);
+  expect(typeof confirmed.body.token).toBe("string");
+}
+
 async function expectVerifyFails(pending: Promise<unknown>): Promise<void> {
   try {
     await pending;
@@ -362,7 +383,7 @@ describe("recovery and reset", () => {
     expect(num(logged?.c)).toBe(2);
   });
 
-  it("resets every device with an emailed code, activates the current one, and stops after 3 in 30 days", async () => {
+  it("resets every device with an emailed code, activates the current one, and stops at a custom per-app limit", async () => {
     const seeded = await seedApp(env, { resetLimit: 3, resetWindowDays: 30 });
     const app = handler();
     const key = await issueKey(app, seeded, { sessionId: "cs_reset", email: "owner@example.com", maxMachines: "1" });
@@ -399,6 +420,38 @@ describe("recovery and reset", () => {
       )
       .first<{ c: number }>();
     expect(num(resets?.c)).toBe(3);
+  });
+
+  it("allows the default of 5 resets in 30 days and rejects the sixth", async () => {
+    const seeded = await seedApp(env, { extra: { RATE_LIMIT_RESET_IP_PER_MIN: "100" } });
+    const stored = await env.DB.prepare(`SELECT reset_limit, reset_window_days FROM apps WHERE slug = 'myapp'`).first<{
+      reset_limit: number;
+      reset_window_days: number;
+    }>();
+    expect(stored).toEqual({ reset_limit: 5, reset_window_days: 30 });
+    const app = handler();
+    const key = await issueKey(app, seeded, { sessionId: "cs_reset5", email: "owner@example.com", maxMachines: "1" });
+    for (let i = 0; i < 5; i++) {
+      await completeReset(app, seeded.env, key, i % 2 === 0 ? M1 : M2);
+    }
+    const blocked = await postJson(app, seeded.env, "/v1/myapp/reset-machines/request", { key });
+    expect(blocked.status).toBe(429);
+    expect(blocked.body.error).toBe("reset_limit_reached");
+  });
+
+  it("treats reset_limit 0 as unlimited", async () => {
+    const seeded = await seedApp(env, { resetLimit: 0, extra: { RATE_LIMIT_RESET_IP_PER_MIN: "100" } });
+    const app = handler();
+    const key = await issueKey(app, seeded, { sessionId: "cs_reset0", email: "owner@example.com", maxMachines: "1" });
+    for (let i = 0; i < 6; i++) {
+      await completeReset(app, seeded.env, key, i % 2 === 0 ? M1 : M2);
+    }
+    const resets = await env.DB
+      .prepare(
+        `SELECT COUNT(*) AS c FROM events WHERE type = 'activation.removed' AND machine_hash IS NULL AND detail LIKE '%"reason":"reset"%'`,
+      )
+      .first<{ c: number }>();
+    expect(num(resets?.c)).toBe(6);
   });
 
   it("burns a reset code after 5 wrong attempts", async () => {
@@ -440,7 +493,11 @@ describe("admin", () => {
       env,
     );
     expect(created.status).toBe(201);
-    const body = (await created.json()) as { private_key: string; instructions: string; app: { public_key: string } };
+    const body = (await created.json()) as {
+      private_key: string;
+      instructions: string;
+      app: { public_key: string; reset_limit: number; reset_window_days: number };
+    };
     expect(body.private_key).toContain("BEGIN PRIVATE KEY");
     expect(body.instructions).toContain("APP_KEY_MYAPP");
     const stored = await env.DB.prepare(`SELECT public_key, trial_days FROM apps WHERE slug = 'myapp'`).first<{
@@ -450,6 +507,40 @@ describe("admin", () => {
     expect(stored?.public_key).toBe(body.app.public_key);
     expect(stored?.public_key).not.toContain("PRIVATE KEY");
     expect(stored?.trial_days).toBe(14);
+    expect(body.app.reset_limit).toBe(5);
+    expect(body.app.reset_window_days).toBe(30);
+    await env.DB.prepare(
+      `INSERT INTO apps (slug, name, key_prefix, public_key) VALUES ('plain', 'Plain', 'PLAIN', 'pk')`,
+    ).run();
+    const sqlDefault = await env.DB.prepare(
+      `SELECT reset_limit, reset_window_days FROM apps WHERE slug = 'plain'`,
+    ).first<{ reset_limit: number; reset_window_days: number }>();
+    expect(sqlDefault).toEqual({ reset_limit: 5, reset_window_days: 30 });
+
+    const patched = await app.request(
+      "/admin/apps/myapp",
+      {
+        method: "PATCH",
+        headers: { Authorization: "Bearer test-admin-token", "Content-Type": "application/json" },
+        body: JSON.stringify({ reset_limit: 0, reset_window_days: 14 }),
+      },
+      env,
+    );
+    expect(patched.status).toBe(200);
+    const patchedBody = (await patched.json()) as { app: { reset_limit: number; reset_window_days: number } };
+    expect(patchedBody.app.reset_limit).toBe(0);
+    expect(patchedBody.app.reset_window_days).toBe(14);
+
+    const invalid = await app.request(
+      "/admin/apps/myapp",
+      {
+        method: "PATCH",
+        headers: { Authorization: "Bearer test-admin-token", "Content-Type": "application/json" },
+        body: JSON.stringify({ reset_limit: -1 }),
+      },
+      env,
+    );
+    expect(invalid.status).toBe(400);
   });
 
   it("returns stats and license usage that match the database", async () => {
