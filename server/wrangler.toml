@@ -3,7 +3,9 @@ main = "src/index.ts"
 compatibility_date = "2025-12-10"
 compatibility_flags = ["nodejs_compat"]
 
-# Placeholder only. Replace database_id after `wrangler d1 create stripe-license`.
+# Placeholder only. Do not commit a real id. The deploy workflow replaces this
+# with the GitHub variable D1_DATABASE_ID before `wrangler d1 migrations apply`
+# and `wrangler deploy`.
 [[d1_databases]]
 binding = "DB"
 database_name = "stripe-license"

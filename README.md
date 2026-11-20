@@ -231,7 +231,7 @@ npx wrangler login
 npx wrangler d1 create stripe-license
 ```
 
-Copy the returned database id into `server/wrangler.toml` (`database_id`). The committed file contains a placeholder only.
+`wrangler d1 create` prints a database UUID. Leave the placeholder `database_id` in `server/wrangler.toml` and do not commit the real id. Publishing a release substitutes the GitHub variable `D1_DATABASE_ID` (see [Continuous deployment](#continuous-deployment)). For a one-off deploy from a laptop, replace the placeholder in your local checkout, run the commands below, and leave that edit uncommitted.
 
 ```bash
 npx wrangler d1 migrations apply stripe-license --remote
@@ -289,6 +289,30 @@ npm run admin -- unbind 34
 `GET /admin/licenses` and `GET /admin/activations` filter and paginate (`page`, 50 per page). License rows include `used_machines` and `max_machines`.
 
 Changing `max_machines` on an existing license (there is no self-serve upgrade in v1) is a direct SQL update. App settings such as `trial_days` can be changed with `PATCH /admin/apps/{slug}`.
+
+## Continuous deployment
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `npm ci`, typecheck, lint, and test on every pull request and on every push to `main`. It uses no secrets.
+
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) runs only when a GitHub Release is published, and when someone starts it with `workflow_dispatch`. It checks out the release tag (or, for a manual run, the ref you select), runs `npm ci` and `npm test`, and deploys only if the tests pass. It does not run on `pull_request`, so a fork pull request cannot receive production credentials.
+
+The deploy job uses the GitHub Environment `production`. Create that environment and add:
+
+| Name | Kind | Purpose |
+| --- | --- | --- |
+| `CLOUDFLARE_API_TOKEN` | Environment secret | Cloudflare API token |
+| `CLOUDFLARE_ACCOUNT_ID` | Environment secret | Cloudflare account id |
+| `D1_DATABASE_ID` | Environment variable | UUID from `wrangler d1 create stripe-license` |
+
+The workflow writes `D1_DATABASE_ID` over the placeholder `database_id` in `server/wrangler.toml` on the runner, then uses `cloudflare/wrangler-action` to run `wrangler d1 migrations apply stripe-license --remote` and `wrangler deploy` in `server/`.
+
+Create the API token with these account permissions:
+
+- Workers Scripts: Edit
+- D1: Edit
+- Account Settings: Read
+
+Worker runtime secrets are not stored in GitHub. Set each one once with `wrangler secret put`: `ADMIN_TOKEN`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`, `LICENSE_ENCRYPTION_KEY`, and `APP_KEY_<SLUG>` for every app. Publishing another release does not clear them.
 
 ## Client SDK
 
