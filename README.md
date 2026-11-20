@@ -281,7 +281,11 @@ Local database:
 npm run db:migrate:local -w server
 ```
 
-Verify Resend for the `linkfuture.net` domain (SPF and DKIM) so mail from `info@linkfuture.net` is delivered. Embed each app’s `public_key` in that app’s build. Customers only need the public key.
+Verify the sending domain in Resend before mail from `EMAIL_FROM` (default `info@linkfuture.net`) will be delivered. Follow [Resend’s domain verification](https://resend.com/docs/dashboard/domains/introduction) and add the records it shows.
+
+Sending through Resend from an address that already exists, such as `info@yourdomain`, is fine. Replies still arrive at the mailbox that address already uses. Leave the root domain’s current MX and SPF records unchanged. Resend’s SPF (TXT) and MX (bounce) records belong on the `send` subdomain, and the DKIM record (`resend._domainkey`) is added as Resend displays it. Those names do not overlap the records the existing mailbox provider uses, so both can stay in place.
+
+Embed each app’s `public_key` in that app’s build. Customers only need the public key.
 
 ### Admin CLI
 
