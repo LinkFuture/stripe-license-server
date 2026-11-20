@@ -296,13 +296,22 @@ Changing `max_machines` on an existing license (there is no self-serve upgrade i
 
 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) runs only when a GitHub Release is published, and when someone starts it with `workflow_dispatch`. It checks out the release tag (or, for a manual run, the ref you select), runs `npm ci` and `npm test`, and deploys only if the tests pass. It does not run on `pull_request`, so a fork pull request cannot receive production credentials.
 
-The deploy job uses the GitHub Environment `production`. Create that environment and add:
+The deploy job is the only job that sets `environment: production`. Create that environment under **Settings → Environments**. Store the Cloudflare credentials as **Environment secrets** of `production`, not as repository secrets. A repository secret is available to every workflow in the repo. An environment secret is injected only into a job that names that environment, so in this repo only the deploy job can read them. The test job in the deploy workflow does not use the environment and does not receive them.
 
-| Name | Kind | Purpose |
+| Name | Where | Purpose |
 | --- | --- | --- |
-| `CLOUDFLARE_API_TOKEN` | Environment secret | Cloudflare API token |
-| `CLOUDFLARE_ACCOUNT_ID` | Environment secret | Cloudflare account id |
-| `D1_DATABASE_ID` | Environment variable | UUID from `wrangler d1 create stripe-license` |
+| `CLOUDFLARE_API_TOKEN` | `production` environment secret | Cloudflare API token |
+| `CLOUDFLARE_ACCOUNT_ID` | `production` environment secret | Cloudflare account id |
+| `D1_DATABASE_ID` | `production` environment variable | UUID from `wrangler d1 create stripe-license` |
+
+On the same environment, turn on **Required reviewers** so a release does not deploy until you approve it:
+
+1. Open **Settings → Environments → production**.
+2. Under **Deployment protection rules**, check **Required reviewers**.
+3. Add the owner (and anyone else who may approve). Up to six reviewers.
+4. Save the protection rules.
+
+Publishing a release still starts the workflow. Tests run immediately. The deploy job then stays **Waiting** until a required reviewer approves it on the Actions run page. Approval is also required for a manual `workflow_dispatch` run. Rejecting or leaving it waiting means Wrangler does not run.
 
 The workflow writes `D1_DATABASE_ID` over the placeholder `database_id` in `server/wrangler.toml` on the runner, then uses `cloudflare/wrangler-action` to run `wrangler d1 migrations apply stripe-license --remote` and `wrangler deploy` in `server/`.
 
