@@ -1,0 +1,23 @@
+name = "stripe-license-server"
+main = "src/index.ts"
+compatibility_date = "2025-12-10"
+compatibility_flags = ["nodejs_compat"]
+
+# Placeholder only. Replace database_id after `wrangler d1 create stripe-license`.
+[[d1_databases]]
+binding = "DB"
+database_name = "stripe-license"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[vars]
+JWT_ISS = "license.linkfuture.net"
+EMAIL_FROM = "info@linkfuture.net"
+
+# Secrets (never commit values). Set with `wrangler secret put`:
+#   ADMIN_TOKEN
+#   STRIPE_SECRET_KEY
+#   STRIPE_WEBHOOK_SECRET
+#   RESEND_API_KEY
+#   LICENSE_ENCRYPTION_KEY
+#   APP_KEY_<SLUG>   e.g. APP_KEY_MYAPP for slug "myapp"

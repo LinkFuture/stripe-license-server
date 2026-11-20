@@ -1,0 +1,25 @@
+{
+  "name": "stripe-license-server",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "server",
+    "packages/license-client"
+  ],
+  "scripts": {
+    "test": "npm run test -w server && npm run test -w @linkfuture/license-client",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w @linkfuture/license-client",
+    "lint": "eslint .",
+    "admin": "npm run admin -w server --"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "eslint": "^9.39.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.48.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,28 @@
+# Copy to server/.dev.vars for `wrangler dev`. Never commit .dev.vars.
+# All of these are secrets in production (`wrangler secret put`).
+
+ADMIN_TOKEN=
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+RESEND_API_KEY=
+# Required so recovery email can resend keys. 32+ random characters.
+LICENSE_ENCRYPTION_KEY=
+
+# Optional overrides. Defaults live in wrangler.toml [vars].
+JWT_ISS=license.linkfuture.net
+EMAIL_FROM=info@linkfuture.net
+
+# One Ed25519 PKCS8 PEM per app. The name is APP_KEY_ plus the slug in
+# uppercase, with non-alphanumeric characters replaced by underscores.
+# APP_KEY_MYAPP="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+
+# Optional rate-limit overrides (requests per window).
+# RATE_LIMIT_IP_PER_MIN=120
+# RATE_LIMIT_ACTIVATE_IP_PER_MIN=20
+# RATE_LIMIT_ACTIVATE_KEY_PER_MIN=10
+# RATE_LIMIT_VALIDATE_KEY_PER_MIN=60
+# RATE_LIMIT_RECOVER_IP_PER_MIN=5
+# RATE_LIMIT_RECOVER_EMAIL_PER_HOUR=5
+# RATE_LIMIT_RESET_IP_PER_MIN=10
+# CODE_TTL_SECONDS=900
+# CODE_MAX_ATTEMPTS=5
