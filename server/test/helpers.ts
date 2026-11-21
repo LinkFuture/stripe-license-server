@@ -50,6 +50,7 @@ export async function seedApp(
     resetLimit?: number;
     resetWindowDays?: number;
     includeKey?: boolean;
+    mailFrom?: string | null;
     extra?: Record<string, string>;
   } = {},
 ): Promise<SeededApp> {
@@ -60,8 +61,8 @@ export async function seedApp(
   await base.DB.prepare(
     `INSERT INTO apps (
        slug, name, key_prefix, public_key, trial_days, offline_grace_days,
-       inactive_release_days, reset_limit, reset_window_days
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       inactive_release_days, reset_limit, reset_window_days, mail_from
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       slug,
@@ -73,6 +74,7 @@ export async function seedApp(
       opts.inactiveReleaseDays ?? 90,
       opts.resetLimit ?? 5,
       opts.resetWindowDays ?? 30,
+      opts.mailFrom ?? null,
     )
     .run();
   const secret = `APP_KEY_${slug.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;

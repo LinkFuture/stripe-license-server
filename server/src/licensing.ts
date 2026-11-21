@@ -10,7 +10,7 @@ import { licenseEmail, resetCodeEmail } from "./email";
 import { hitLimit, limits } from "./rate-limit";
 import { signLicenseJwt, signTrialJwt } from "./tokens";
 import type { ActivationRow, AppRow, Env, LicenseRow, SendEmail, TrialRow } from "./types";
-import { addDays, emailOk, machineHashOk, normalizeMachineHash, nowIso, str, timingSafeEqual } from "./util";
+import { addDays, emailOk, machineHashOk, normalizeMachineHash, nowIso, resolveMailFrom, resolveReplyTo, str, timingSafeEqual } from "./util";
 
 export class HttpError extends Error {
   constructor(
@@ -334,12 +334,26 @@ export async function recover(opts: {
     .all<LicenseRow>();
   const licenses = rows.results ?? [];
   if (licenses.length === 0) return response;
+  const from = resolveMailFrom(env, app.mail_from);
+  if (!from) {
+    console.log(JSON.stringify({ event: "email_failed", reason: "mail_from_unset", app: app.slug }));
+    await logEvent(env.DB, {
+      appId: app.id,
+      type: "email.failed",
+      ip,
+      detail: { reason: "mail_from_unset", purpose: "recover" },
+      createdAt: nowIso(now),
+    });
+    return response;
+  }
   const keys: string[] = [];
   for (const license of licenses) {
     keys.push(await decryptSecret(license.key_enc, env.LICENSE_ENCRYPTION_KEY));
   }
   try {
     await send(env, {
+      from,
+      replyTo: resolveReplyTo(env),
       to: email,
       subject: `Your ${app.name} license key${keys.length > 1 ? "s" : ""}`,
       text: licenseEmail(app.name, keys),
@@ -384,6 +398,8 @@ export async function requestReset(opts: {
   const { license } = await loadLicense(env.DB, app, body.key);
   assertActive(license);
   if (!env.LICENSE_ENCRYPTION_KEY) throw new HttpError(500, "encryption_key_missing");
+  const from = resolveMailFrom(env, app.mail_from);
+  if (!from) throw new HttpError(500, "mail_from_unset");
   await assertResetAllowed(env.DB, app, license.id, now);
   const lim = limits(env);
   const code = randomDigits(6);
@@ -404,6 +420,8 @@ export async function requestReset(opts: {
     createdAt: nowIso(now),
   });
   await send(env, {
+    from,
+    replyTo: resolveReplyTo(env),
     to: license.email,
     subject: `${app.name} device reset code`,
     text: resetCodeEmail(app.name, code),

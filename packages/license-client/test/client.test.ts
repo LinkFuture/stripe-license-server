@@ -8,6 +8,7 @@ import {
 } from "../src/index";
 
 const DAY = 86_400_000;
+const ISSUER = "https://license.example.com";
 
 function memory(): StorageAdapter {
   const data = new Map<string, string>();
@@ -44,7 +45,7 @@ function token(privateKey: CryptoKey, opts: {
     ...(opts.max !== undefined ? { max: opts.max } : {}),
   })
     .setProtectedHeader({ alg })
-    .setIssuer("license.linkfuture.net")
+    .setIssuer(ISSUER)
     .setAudience(opts.aud ?? "myapp")
     .setSubject(opts.kind === "trial" ? "trial:1" : "1")
     .setIssuedAt(opts.iat ?? opts.exp - 30 * 86_400)
@@ -75,6 +76,7 @@ describe("offline verification", () => {
     const client = new LicenseClient({
       appSlug: "myapp",
       publicKey: publicPem,
+      issuer: ISSUER,
       apiBase: "https://license.example.com",
       storage,
       machineId: () => "device-a",
@@ -93,6 +95,7 @@ describe("offline verification", () => {
     const verified = await verifyOfflineToken(valid, {
       publicKey: publicPem,
       audience: "myapp",
+      issuer: ISSUER,
       machineHash: hash,
       now,
     });
@@ -100,12 +103,13 @@ describe("offline verification", () => {
 
     const tampered = `${valid.slice(0, -2)}${valid.endsWith("a") ? "b" : "a"}`;
     expect(
-      (await verifyOfflineToken(tampered, { publicKey: publicPem, audience: "myapp", machineHash: hash, now })).ok,
+      (await verifyOfflineToken(tampered, { publicKey: publicPem, audience: "myapp", issuer: ISSUER, machineHash: hash, now })).ok,
     ).toBe(false);
 
     const copied = new LicenseClient({
       appSlug: "myapp",
       publicKey: publicPem,
+      issuer: ISSUER,
       apiBase: "https://license.example.com",
       storage,
       machineId: () => "device-b",
@@ -115,6 +119,7 @@ describe("offline verification", () => {
     const wrongMid = await verifyOfflineToken(valid, {
       publicKey: publicPem,
       audience: "myapp",
+      issuer: ISSUER,
       machineHash: otherHash,
       now,
     });
@@ -122,20 +127,40 @@ describe("offline verification", () => {
 
     const wrongAud = await token(privateKey, { aud: "other", mid: hash, exp: Math.floor(now / 1000) + 1000, max: 2 });
     expect(
-      (await verifyOfflineToken(wrongAud, { publicKey: publicPem, audience: "myapp", machineHash: hash, now })).ok,
+      (await verifyOfflineToken(wrongAud, { publicKey: publicPem, audience: "myapp", issuer: ISSUER, machineHash: hash, now })).ok,
     ).toBe(false);
 
     const expired = await token(privateKey, { mid: hash, exp: Math.floor(now / 1000) - 10, max: 2 });
     const expiredCheck = await verifyOfflineToken(expired, {
       publicKey: publicPem,
       audience: "myapp",
+      issuer: ISSUER,
       machineHash: hash,
       now,
     });
     expect(expiredCheck).toMatchObject({ ok: false, reason: "expired" });
 
     const hmac = await token(privateKey, { mid: hash, exp: Math.floor(now / 1000) + 1000, max: 1, alg: "HS256" });
-    expect((await verifyOfflineToken(hmac, { publicKey: publicPem, audience: "myapp", machineHash: hash, now })).ok).toBe(false);
+    expect((await verifyOfflineToken(hmac, { publicKey: publicPem, audience: "myapp", issuer: ISSUER, machineHash: hash, now })).ok).toBe(false);
+    const foreign = await new SignJWT({ mid: hash, kind: "license", max: 2 })
+      .setProtectedHeader({ alg: "EdDSA" })
+      .setIssuer("https://other.example.com")
+      .setAudience("myapp")
+      .setSubject("1")
+      .setIssuedAt(Math.floor(now / 1000))
+      .setExpirationTime(Math.floor(now / 1000) + 1000)
+      .sign(privateKey);
+    expect(
+      (
+        await verifyOfflineToken(foreign, {
+          publicKey: publicPem,
+          audience: "myapp",
+          issuer: ISSUER,
+          machineHash: hash,
+          now,
+        })
+      ).ok,
+    ).toBe(false);
   });
 
   it("keeps a revoked license usable until the offline token expires, then locks", async () => {
@@ -150,6 +175,7 @@ describe("offline verification", () => {
     const client = new LicenseClient({
       appSlug: "myapp",
       publicKey: publicPem,
+      issuer: ISSUER,
       apiBase: "https://license.example.com",
       storage,
       machineId: () => "device-a",
@@ -178,6 +204,7 @@ describe("offline trial", () => {
     const client = new LicenseClient({
       appSlug: "myapp",
       publicKey: publicPem,
+      issuer: ISSUER,
       apiBase: "https://license.example.com",
       storage: memory(),
       machineId: () => "device-a",
@@ -214,6 +241,7 @@ describe("offline trial", () => {
     const client = new LicenseClient({
       appSlug: "myapp",
       publicKey: publicPem,
+      issuer: ISSUER,
       apiBase: "https://license.example.com",
       storage: memory(),
       machineId: () => "device-a",

@@ -1,7 +1,7 @@
 import { generateEd25519, publicKeyImports } from "./crypto";
 import { logEvent } from "./db";
 import type { AppRow, Env } from "./types";
-import { appKeySecretName, likeContains, nowIso, pageParams, parsePositiveInt, str, timingSafeEqualHash } from "./util";
+import { appKeySecretName, likeContains, nowIso, pageParams, parseMailFrom, parsePositiveInt, str, timingSafeEqualHash } from "./util";
 
 export async function adminAuthorized(env: Env, header: string | undefined): Promise<boolean> {
   const token = env.ADMIN_TOKEN;
@@ -13,6 +13,18 @@ export async function adminAuthorized(env: Env, header: string | undefined): Pro
 
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 const PREFIX = /^[A-Z0-9]{2,12}$/;
+
+function mailFromInput(
+  value: unknown,
+  current: string | null,
+): { ok: true; value: string | null } | { ok: false } {
+  if (value === undefined) return { ok: true, value: current };
+  if (value === null || value === "") return { ok: true, value: null };
+  if (typeof value !== "string") return { ok: false };
+  const formatted = parseMailFrom(value);
+  if (!formatted) return { ok: false };
+  return { ok: true, value: formatted };
+}
 
 function optInt(value: unknown, fallback: number, min: number, max: number): number | null {
   if (value === undefined || value === null || value === "") return fallback;
@@ -42,6 +54,8 @@ export async function createApp(env: Env, body: Record<string, unknown>, now: Da
   ) {
     return { status: 400 as const, body: { error: "invalid_settings" } };
   }
+  const mailFrom = mailFromInput(body.mail_from, null);
+  if (!mailFrom.ok) return { status: 400 as const, body: { error: "invalid_mail_from" } };
 
   let publicKey = str(body.public_key, 4000);
   let privateKey: string | null = null;
@@ -60,8 +74,8 @@ export async function createApp(env: Env, body: Record<string, unknown>, now: Da
       .prepare(
         `INSERT INTO apps (
            slug, name, key_prefix, public_key, trial_days, offline_grace_days,
-           inactive_release_days, reset_limit, reset_window_days, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           inactive_release_days, reset_limit, reset_window_days, mail_from, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         slug,
@@ -73,6 +87,7 @@ export async function createApp(env: Env, body: Record<string, unknown>, now: Da
         inactive,
         resetLimit,
         resetWindow,
+        mailFrom.value,
         nowIso(now),
       )
       .run();
@@ -114,15 +129,17 @@ export async function patchApp(env: Env, slug: string, body: Record<string, unkn
   const resetWindow = optInt(body.reset_window_days, app.reset_window_days, 1, 3650);
   const status =
     body.status === undefined ? app.status : body.status === "active" || body.status === "disabled" ? body.status : null;
+  const mailFrom = mailFromInput(body.mail_from, app.mail_from);
   if (!name || trialDays === null || grace === null || inactive === null || resetLimit === null || resetWindow === null || !status) {
     return { status: 400 as const, body: { error: "invalid_settings" } };
   }
+  if (!mailFrom.ok) return { status: 400 as const, body: { error: "invalid_mail_from" } };
   await env.DB
     .prepare(
       `UPDATE apps SET name = ?, trial_days = ?, offline_grace_days = ?, inactive_release_days = ?,
-        reset_limit = ?, reset_window_days = ?, status = ? WHERE id = ?`,
+        reset_limit = ?, reset_window_days = ?, mail_from = ?, status = ? WHERE id = ?`,
     )
-    .bind(name, trialDays, grace, inactive, resetLimit, resetWindow, status, app.id)
+    .bind(name, trialDays, grace, inactive, resetLimit, resetWindow, mailFrom.value, status, app.id)
     .run();
   const updated = await env.DB.prepare(`SELECT * FROM apps WHERE id = ?`).bind(app.id).first<AppRow>();
   return { status: 200 as const, body: { app: updated } };

@@ -1,8 +1,10 @@
 import type { OutboundEmail, SendEmail } from "./types";
-import { emailFrom } from "./util";
 
 export const sendEmail: SendEmail = async (env, email) => {
-  const from = emailFrom(env);
+  if (!email.from) {
+    console.log(JSON.stringify({ event: "email_failed", reason: "mail_from_unset", to: email.to }));
+    throw new Error("mail_from_unset");
+  }
   if (!env.RESEND_API_KEY) {
     console.log(
       JSON.stringify({
@@ -14,22 +16,24 @@ export const sendEmail: SendEmail = async (env, email) => {
     );
     return;
   }
+  const body: Record<string, unknown> = {
+    from: email.from,
+    to: [email.to],
+    subject: email.subject,
+    text: email.text,
+  };
+  if (email.replyTo) body.reply_to = email.replyTo;
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${env.RESEND_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      from,
-      to: [email.to],
-      subject: email.subject,
-      text: email.text,
-    }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`resend_${res.status}:${body.slice(0, 300)}`);
+    const text = await res.text();
+    throw new Error(`resend_${res.status}:${text.slice(0, 300)}`);
   }
 };
 

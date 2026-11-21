@@ -8,9 +8,12 @@ RESEND_API_KEY=
 # Required so recovery email can resend keys. 32+ random characters.
 LICENSE_ENCRYPTION_KEY=
 
-# Optional overrides. Defaults live in wrangler.toml [vars].
-JWT_ISS=license.linkfuture.net
-EMAIL_FROM=info@linkfuture.net
+# Sender and JWT issuer. Placeholders only — replace with your own domain.
+# MAIL_FROM may be "Display Name <addr>" or a bare address.
+# A secret overrides the wrangler.toml [vars] placeholder.
+MAIL_FROM="My App <noreply@example.com>"
+MAIL_REPLY_TO=support@example.com
+LICENSE_ISSUER=https://license.example.com
 
 # One Ed25519 PKCS8 PEM per app. The name is APP_KEY_ plus the slug in
 # uppercase, with non-alphanumeric characters replaced by underscores.

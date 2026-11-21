@@ -37,7 +37,7 @@ Host application
 3. The worker reads `metadata.app` and `metadata.max_machines`, and the email on `customer_details`.
 4. If either metadata field is missing or invalid, or the email is missing, it writes a `webhook.error` event and returns 200 so Stripe does not retry forever.
 5. Otherwise it creates one license row keyed by `stripe_session_id`. A repeat delivery of the same session does not create a second key.
-6. It emails the key from `EMAIL_FROM` (default `info@linkfuture.net`) through the Resend HTTP API. If `RESEND_API_KEY` is unset, it skips the send and logs that fact.
+6. It emails the key through the Resend HTTP API. The From header is `apps.mail_from` when set, otherwise `MAIL_FROM` (`Name <addr>` or a bare address). Optional `MAIL_REPLY_TO` is the reply address. If neither a per-app sender nor `MAIL_FROM` is set, the key is still stored, the failure is logged, and the webhook returns 200. If `RESEND_API_KEY` is unset, it skips the send and logs that fact.
 
 `charge.refunded` (full refund only) and `charge.dispute.created` look up `stripe_payment_intent` and set `status = 'revoked'`, `revoked_at`, and `revoke_reason` (`refund` or `dispute`). A partial refund does not revoke the license. A $0 Checkout has a null payment intent, so there is nothing for a later refund event to find; that is expected.
 
@@ -47,7 +47,7 @@ The short key is only an activation credential. After a successful `activate` or
 
 | Claim | Meaning |
 | --- | --- |
-| `iss` | `JWT_ISS`, default `license.linkfuture.net` |
+| `iss` | `LICENSE_ISSUER` (required; there is no built-in default) |
 | `aud` | App slug |
 | `sub` | License id |
 | `mid` | Machine hash |
@@ -100,6 +100,7 @@ Per-app columns on `apps` (set on `POST /admin/apps` or `PATCH /admin/apps/{slug
 | `inactive_release_days` | 90 | Machines quieter than this no longer count toward `max_machines`. `0` disables the rule |
 | `reset_limit` | 5 | Self-service device resets per license in the rolling window. `0` is unlimited |
 | `reset_window_days` | 30 | Length of that rolling window |
+| `mail_from` | unset | Sender for this app, `Display Name <addr>` or a bare address. Unset uses `MAIL_FROM` |
 
 ```sql
 CREATE TABLE apps (
@@ -113,6 +114,7 @@ CREATE TABLE apps (
   inactive_release_days INTEGER NOT NULL DEFAULT 90 CHECK (inactive_release_days >= 0),
   reset_limit INTEGER NOT NULL DEFAULT 5 CHECK (reset_limit >= 0),
   reset_window_days INTEGER NOT NULL DEFAULT 30 CHECK (reset_window_days >= 1),
+  mail_from TEXT,
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled')),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
@@ -270,8 +272,9 @@ npx wrangler secret put APP_KEY_MYAPP
 
 Non-secret defaults live in `wrangler.toml` `[vars]`:
 
-- `JWT_ISS` = `license.linkfuture.net`
-- `EMAIL_FROM` = `info@linkfuture.net`
+- `LICENSE_ISSUER` = `https://license.example.com` (placeholder; replace it)
+- `MAIL_FROM` = `My App <noreply@example.com>` (placeholder; replace it)
+- `MAIL_REPLY_TO` = `support@example.com` (optional placeholder)
 
 Optional rate-limit vars are listed in `server/.dev.vars.example`. Copy that file to `server/.dev.vars` for `wrangler dev`. Never commit `.dev.vars`.
 
@@ -281,9 +284,9 @@ Local database:
 npm run db:migrate:local -w server
 ```
 
-Verify the sending domain in Resend before mail from `EMAIL_FROM` (default `info@linkfuture.net`) will be delivered. Follow [Resend’s domain verification](https://resend.com/docs/dashboard/domains/introduction) and add the records it shows.
+Verify the sending domain in Resend before mail from `MAIL_FROM` will be delivered. Follow [Resend’s domain verification](https://resend.com/docs/dashboard/domains/introduction) and add the records it shows. `MAIL_FROM` and `LICENSE_ISSUER` in `wrangler.toml` are placeholders. Replace them with your own values, or set the same names with `wrangler secret put` (a secret overrides the var). `POST /admin/apps` and `PATCH /admin/apps/{slug}` accept `mail_from` for one app; leave it empty to use `MAIL_FROM`. The value may include a display name: `My App <noreply@example.com>`.
 
-Sending through Resend from an address that already exists, such as `info@yourdomain`, is fine. Replies still arrive at the mailbox that address already uses. Leave the root domain’s current MX and SPF records unchanged. Resend’s SPF (TXT) and MX (bounce) records belong on the `send` subdomain, and the DKIM record (`resend._domainkey`) is added as Resend displays it. Those names do not overlap the records the existing mailbox provider uses, so both can stay in place.
+Sending through Resend from an address that already exists, such as `noreply@example.com`, is fine. Replies still arrive at the mailbox that address already uses. Leave the root domain’s current MX and SPF records unchanged. Resend’s SPF (TXT) and MX (bounce) records belong on the `send` subdomain, and the DKIM record (`resend._domainkey`) is added as Resend displays it. Those names do not overlap the records the existing mailbox provider uses, so both can stay in place.
 
 Embed each app’s `public_key` in that app’s build. Customers only need the public key.
 
@@ -335,7 +338,7 @@ Create the API token with these account permissions:
 - D1: Edit
 - Account Settings: Read
 
-Worker runtime secrets are not stored in GitHub. Set each one once with `wrangler secret put`: `ADMIN_TOKEN`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`, `LICENSE_ENCRYPTION_KEY`, and `APP_KEY_<SLUG>` for every app. Publishing another release does not clear them.
+Worker runtime secrets are not stored in GitHub. Set each one once with `wrangler secret put`: `ADMIN_TOKEN`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`, `LICENSE_ENCRYPTION_KEY`, and `APP_KEY_<SLUG>` for every app. `MAIL_FROM`, `MAIL_REPLY_TO`, and `LICENSE_ISSUER` may be vars or secrets; replace the example.com placeholders before you send mail. Publishing another release does not clear them.
 
 ## Client SDK
 
@@ -347,6 +350,7 @@ import { LicenseClient } from "@linkfuture/license-client";
 const client = new LicenseClient({
   appSlug: "myapp",
   publicKey: process.env.LICENSE_PUBLIC_KEY!,
+  issuer: "https://license.example.com",
   apiBase: "https://license.example.com",
   trialDays: 30,
   machineId: async () => readRawMachineId(),
@@ -400,7 +404,7 @@ Server tests run on the Workers Vitest pool (Miniflare + D1) and cover webhook i
 
 ## Security
 
-- Do not commit secrets. `server/.dev.vars` is gitignored. Production secrets are `ADMIN_TOKEN`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`, `LICENSE_ENCRYPTION_KEY`, and one `APP_KEY_<SLUG>` per app.
+- Do not commit real domains or mailbox addresses. `server/.dev.vars` is gitignored. Production secrets are `ADMIN_TOKEN`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`, `LICENSE_ENCRYPTION_KEY`, and one `APP_KEY_<SLUG>` per app. `MAIL_FROM`, `MAIL_REPLY_TO`, and `LICENSE_ISSUER` are configuration; the committed values are example.com placeholders.
 - Admin authentication compares SHA-256 digests of the presented token and `ADMIN_TOKEN` in constant time. An empty token is rejected.
 - Webhook signatures are required. The raw body is what is signed.
 - Public routes are rate limited in D1 per IP. Activate is additionally limited per IP and per submitted key. Recover is limited per IP and per email. Reset is limited per IP, and successful resets are limited per license.

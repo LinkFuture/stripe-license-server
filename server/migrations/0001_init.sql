@@ -15,6 +15,7 @@ CREATE TABLE apps (
   inactive_release_days INTEGER NOT NULL DEFAULT 90 CHECK (inactive_release_days >= 0),
   reset_limit INTEGER NOT NULL DEFAULT 5 CHECK (reset_limit >= 0),
   reset_window_days INTEGER NOT NULL DEFAULT 30 CHECK (reset_window_days >= 1),
+  mail_from TEXT,
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled')),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );

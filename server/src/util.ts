@@ -2,9 +2,6 @@ import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { Env } from "./types";
 
-export const DEFAULT_JWT_ISS = "license.linkfuture.net";
-export const DEFAULT_EMAIL_FROM = "info@linkfuture.net";
-
 export function nowIso(now = new Date()): string {
   return now.toISOString();
 }
@@ -62,12 +59,42 @@ export function clamp(value: string | null, max: number): string | null {
   return value.slice(0, max);
 }
 
-export function jwtIss(env: Env): string {
-  return env.JWT_ISS?.trim() || DEFAULT_JWT_ISS;
+const MAIL_ADDRESS = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
+
+/** Accepts `addr` or `Display Name <addr>`. Rejects newlines and empty names. */
+export function parseMailFrom(input: string): string | null {
+  const value = input.trim();
+  if (!value || value.length > 200 || /[\r\n]/.test(value)) return null;
+  const wrapped = value.match(/^(.*) <([^<>]+)>$/);
+  if (wrapped) {
+    const name = wrapped[1].trim().replace(/^"|"$/g, "");
+    const address = wrapped[2].trim();
+    if (!name || name.length > 80 || /[<>"]/.test(name)) return null;
+    if (!MAIL_ADDRESS.test(address)) return null;
+    return `${name} <${address}>`;
+  }
+  if (!MAIL_ADDRESS.test(value)) return null;
+  return value;
 }
 
-export function emailFrom(env: Env): string {
-  return env.EMAIL_FROM?.trim() || DEFAULT_EMAIL_FROM;
+export function licenseIssuer(env: Env): string | null {
+  const value = env.LICENSE_ISSUER?.trim();
+  return value || null;
+}
+
+/** Per-app `mail_from` wins. Otherwise `MAIL_FROM`. Empty or invalid is unset. */
+export function resolveMailFrom(env: Env, appMailFrom: string | null | undefined): string | null {
+  const preferred = appMailFrom?.trim();
+  if (preferred) return parseMailFrom(preferred);
+  const fallback = env.MAIL_FROM?.trim();
+  if (!fallback) return null;
+  return parseMailFrom(fallback);
+}
+
+export function resolveReplyTo(env: Env): string | null {
+  const value = env.MAIL_REPLY_TO?.trim();
+  if (!value) return null;
+  return parseMailFrom(value);
 }
 
 export function appKeySecretName(slug: string): string {

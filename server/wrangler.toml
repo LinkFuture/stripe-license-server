@@ -13,8 +13,11 @@ database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
 
 [vars]
-JWT_ISS = "license.linkfuture.net"
-EMAIL_FROM = "info@linkfuture.net"
+# Placeholders only. Replace them, or override with `wrangler secret put`
+# (a secret overrides a var of the same name). Do not commit a real address.
+MAIL_FROM = "My App <noreply@example.com>"
+MAIL_REPLY_TO = "support@example.com"
+LICENSE_ISSUER = "https://license.example.com"
 
 # Secrets (never commit values). Set with `wrangler secret put`:
 #   ADMIN_TOKEN

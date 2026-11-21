@@ -4,7 +4,7 @@ import type { LicenseRow, SendEmail } from "./types";
 import type { Env } from "./types";
 import { licenseEmail } from "./email";
 import { isFullRefund, parseCheckout, stripeId } from "./stripe";
-import { emailOk, nowIso, parsePositiveInt } from "./util";
+import { emailOk, nowIso, parsePositiveInt, resolveMailFrom, resolveReplyTo } from "./util";
 
 async function findBySession(db: D1Database, sessionId: string): Promise<LicenseRow | null> {
   return db
@@ -18,13 +18,27 @@ async function deliverKey(
   send: SendEmail,
   db: D1Database,
   license: LicenseRow,
-  appName: string,
+  app: { id: number; name: string; mail_from: string | null },
   plaintext: string | null,
   now: Date,
+  ip: string,
 ): Promise<void> {
   if (license.email_sent_at) return;
   if (!env.LICENSE_ENCRYPTION_KEY) {
     throw new Error("encryption_key_missing");
+  }
+  const from = resolveMailFrom(env, app.mail_from);
+  if (!from) {
+    console.log(JSON.stringify({ event: "email_failed", license_id: license.id, reason: "mail_from_unset" }));
+    await logEvent(db, {
+      appId: app.id,
+      licenseId: license.id,
+      type: "email.failed",
+      ip,
+      detail: { reason: "mail_from_unset" },
+      createdAt: nowIso(now),
+    });
+    return;
   }
   const key = plaintext ?? (await decryptSecret(license.key_enc, env.LICENSE_ENCRYPTION_KEY));
   if (!env.RESEND_API_KEY) {
@@ -37,10 +51,16 @@ async function deliverKey(
     );
     return;
   }
+  const replyTo = resolveReplyTo(env);
+  if (env.MAIL_REPLY_TO?.trim() && !replyTo) {
+    console.log(JSON.stringify({ event: "email_reply_to_ignored", reason: "invalid_mail_reply_to" }));
+  }
   await send(env, {
+    from,
+    replyTo,
     to: license.email,
-    subject: `Your ${appName} license key`,
-    text: licenseEmail(appName, [key]),
+    subject: `Your ${app.name} license key`,
+    text: licenseEmail(app.name, [key]),
   });
   await db
     .prepare(`UPDATE licenses SET email_sent_at = ? WHERE id = ?`)
@@ -82,11 +102,20 @@ export async function handleCheckoutCompleted(
   const existing = await findBySession(db, parsed.sessionId);
   if (existing) {
     const app = await db
-      .prepare(`SELECT name FROM apps WHERE id = ?`)
+      .prepare(`SELECT id, name, mail_from FROM apps WHERE id = ?`)
       .bind(existing.app_id)
-      .first<{ name: string }>();
+      .first<{ id: number; name: string; mail_from: string | null }>();
     try {
-      await deliverKey(env, send, db, existing, app?.name ?? "app", null, now);
+      await deliverKey(
+        env,
+        send,
+        db,
+        existing,
+        app ?? { id: existing.app_id, name: "app", mail_from: null },
+        null,
+        now,
+        ip,
+      );
     } catch (error) {
       console.log(JSON.stringify({ event: "email_failed", session_id: parsed.sessionId, error: String(error) }));
       return { status: 500 };
@@ -135,7 +164,7 @@ export async function handleCheckoutCompleted(
       const raced = await findBySession(db, parsed.sessionId);
       if (raced) {
         try {
-          await deliverKey(env, send, db, raced, app.name, null, now);
+          await deliverKey(env, send, db, raced, app, null, now, ip);
         } catch (sendError) {
           console.log(JSON.stringify({ event: "email_failed", error: String(sendError) }));
           return { status: 500 };
@@ -161,7 +190,7 @@ export async function handleCheckoutCompleted(
   });
 
   try {
-    await deliverKey(env, send, db, license, app.name, plaintext, now);
+    await deliverKey(env, send, db, license, app, plaintext, now, ip);
   } catch (error) {
     console.log(JSON.stringify({ event: "email_failed", license_id: license.id, error: String(error) }));
     return { status: 500 };

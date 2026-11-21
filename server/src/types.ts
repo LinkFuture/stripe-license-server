@@ -5,8 +5,9 @@ export interface Env {
   STRIPE_WEBHOOK_SECRET?: string;
   RESEND_API_KEY?: string;
   LICENSE_ENCRYPTION_KEY?: string;
-  JWT_ISS?: string;
-  EMAIL_FROM?: string;
+  LICENSE_ISSUER?: string;
+  MAIL_FROM?: string;
+  MAIL_REPLY_TO?: string;
   RATE_LIMIT_IP_PER_MIN?: string;
   RATE_LIMIT_ACTIVATE_IP_PER_MIN?: string;
   RATE_LIMIT_ACTIVATE_KEY_PER_MIN?: string;
@@ -30,6 +31,7 @@ export interface AppRow {
   inactive_release_days: number;
   reset_limit: number;
   reset_window_days: number;
+  mail_from: string | null;
   status: "active" | "disabled";
   created_at: string;
 }
@@ -87,6 +89,8 @@ export interface EmailCodeRow {
 }
 
 export interface OutboundEmail {
+  from: string;
+  replyTo?: string | null;
   to: string;
   subject: string;
   text: string;

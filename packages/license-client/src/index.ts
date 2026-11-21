@@ -19,6 +19,8 @@ export interface LicenseClientOptions {
   appSlug: string;
   /** SPKI PEM or JWK JSON. Verification allows EdDSA only. */
   publicKey: string;
+  /** Expected JWT `iss`. Required. Tokens with any other issuer are rejected. */
+  issuer: string;
   apiBase: string;
   storage: StorageAdapter;
   machineId: () => Promise<string> | string;
@@ -62,7 +64,7 @@ export class LicenseError extends Error {
 type VerifyResult =
   | { ok: true; kind: "license" | "trial"; exp: number; max: number | null }
   | { ok: false; reason: "expired"; kind: "license" | "trial"; exp: number | null }
-  | { ok: false; reason: "mid" | "aud" | "alg" | "invalid" };
+  | { ok: false; reason: "mid" | "aud" | "iss" | "alg" | "invalid" };
 
 async function loadPublicKey(publicKey: string): Promise<CryptoKey> {
   const trimmed = publicKey.trim();
@@ -94,12 +96,13 @@ export async function machineHash(appSlug: string, machineId: string): Promise<s
 
 export async function verifyOfflineToken(
   token: string,
-  opts: { publicKey: string; audience: string; machineHash: string; now: number },
+  opts: { publicKey: string; audience: string; issuer: string; machineHash: string; now: number },
 ): Promise<VerifyResult> {
   const key = await loadPublicKey(opts.publicKey);
   try {
     const { payload, protectedHeader } = await jwtVerify(token, key, {
       audience: opts.audience,
+      issuer: opts.issuer,
       algorithms: ["EdDSA"],
       currentDate: new Date(opts.now),
     });
@@ -114,6 +117,9 @@ export async function verifyOfflineToken(
     };
   } catch (error) {
     const payload = (error as { payload?: JWTPayload }).payload;
+    if (payload && payload.iss !== undefined && payload.iss !== opts.issuer) {
+      return { ok: false, reason: "iss" };
+    }
     if (payload && payload.mid !== undefined && payload.mid !== opts.machineHash) {
       return { ok: false, reason: "mid" };
     }
@@ -130,6 +136,9 @@ export async function verifyOfflineToken(
     }
     if (error instanceof errors.JWTClaimValidationFailed && error.claim === "aud") {
       return { ok: false, reason: "aud" };
+    }
+    if (error instanceof errors.JWTClaimValidationFailed && error.claim === "iss") {
+      return { ok: false, reason: "iss" };
     }
     return { ok: false, reason: "invalid" };
   }
@@ -150,6 +159,7 @@ export class LicenseClient {
   private readonly base: string;
 
   constructor(private readonly options: LicenseClientOptions) {
+    if (!options.issuer.trim()) throw new Error("issuer is required");
     this.fetchImpl = options.fetch ?? fetch;
     this.trialDays = options.trialDays ?? 30;
     this.base = options.apiBase.replace(/\/$/, "");
@@ -273,6 +283,7 @@ export class LicenseClient {
       const verified = await verifyOfflineToken(licenseToken, {
         publicKey: this.options.publicKey,
         audience: this.options.appSlug,
+        issuer: this.options.issuer,
         machineHash: hash,
         now,
       });
@@ -326,6 +337,7 @@ export class LicenseClient {
       const verified = await verifyOfflineToken(trialToken, {
         publicKey: this.options.publicKey,
         audience: this.options.appSlug,
+        issuer: this.options.issuer,
         machineHash: hash,
         now,
       });

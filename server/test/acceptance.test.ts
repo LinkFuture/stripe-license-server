@@ -64,6 +64,8 @@ describe("stripe webhook", () => {
     const key = await issueKey(app, seeded, { sessionId: "cs_pay", maxMachines: "2" });
     expect(key.startsWith("MYAPP-")).toBe(true);
     expect(emails[0]?.to).toBe("buyer@example.com");
+    expect(emails[0]?.from).toBe("My App <noreply@example.com>");
+    expect(emails[0]?.replyTo).toBe("support@example.com");
     expect(emails[0]?.subject).toContain("My App");
     const activated = await postJson(app, seeded.env, "/v1/myapp/activate", {
       key,
@@ -104,6 +106,26 @@ describe("stripe webhook", () => {
     const key = keyFromEmail(emails[0].text);
     const activated = await postJson(app, seeded.env, "/v1/myapp/activate", { key, machine_hash: M1 });
     expect(activated.status).toBe(200);
+  });
+
+  it("uses a per-app sender and still issues a key when no sender is configured", async () => {
+    const seeded = await seedApp(env, { mailFrom: "Desk <desk@example.com>" });
+    const app = handler();
+    await issueKey(app, seeded, { sessionId: "cs_from", maxMachines: "1" });
+    expect(emails.at(-1)?.from).toBe("Desk <desk@example.com>");
+
+    emails.length = 0;
+    const unset = await seedApp(env, { slug: "plain", prefix: "PLAIN", name: "Plain", extra: { MAIL_FROM: "" } });
+    const payload = checkoutPayload({
+      sessionId: "cs_nofrom",
+      metadata: { app: "plain", max_machines: "1" },
+    });
+    expect((await postWebhook(app, unset.env, payload)).status).toBe(200);
+    const count = await env.DB.prepare(`SELECT COUNT(*) AS c FROM licenses WHERE stripe_session_id = 'cs_nofrom'`).first<{ c: number }>();
+    expect(num(count?.c)).toBe(1);
+    expect(emails).toHaveLength(0);
+    const failed = await env.DB.prepare(`SELECT COUNT(*) AS c FROM events WHERE type = 'email.failed'`).first<{ c: number }>();
+    expect(num(failed?.c)).toBe(1);
   });
 
   it("does not issue a key when metadata or email is missing, and rejects bad signatures", async () => {
@@ -281,7 +303,7 @@ describe("offline token", () => {
     const publicKey = await importSPKI(seeded.publicKey, "EdDSA");
     const { payload, protectedHeader } = await jwtVerify(token, publicKey, {
       audience: "myapp",
-      issuer: "license.linkfuture.net",
+      issuer: "https://license.example.com",
       algorithms: ["EdDSA"],
     });
     expect(protectedHeader.alg).toBe("EdDSA");
@@ -496,7 +518,7 @@ describe("admin", () => {
     const body = (await created.json()) as {
       private_key: string;
       instructions: string;
-      app: { public_key: string; reset_limit: number; reset_window_days: number };
+      app: { public_key: string; reset_limit: number; reset_window_days: number; mail_from: string | null };
     };
     expect(body.private_key).toContain("BEGIN PRIVATE KEY");
     expect(body.instructions).toContain("APP_KEY_MYAPP");
@@ -509,6 +531,7 @@ describe("admin", () => {
     expect(stored?.trial_days).toBe(14);
     expect(body.app.reset_limit).toBe(5);
     expect(body.app.reset_window_days).toBe(30);
+    expect(body.app.mail_from).toBeNull();
     await env.DB.prepare(
       `INSERT INTO apps (slug, name, key_prefix, public_key) VALUES ('plain', 'Plain', 'PLAIN', 'pk')`,
     ).run();
@@ -541,6 +564,28 @@ describe("admin", () => {
       env,
     );
     expect(invalid.status).toBe(400);
+    const sender = await app.request(
+      "/admin/apps/myapp",
+      {
+        method: "PATCH",
+        headers: { Authorization: "Bearer test-admin-token", "Content-Type": "application/json" },
+        body: JSON.stringify({ mail_from: "Desk <desk@example.com>" }),
+      },
+      env,
+    );
+    expect(sender.status).toBe(200);
+    const senderBody = (await sender.json()) as { app: { mail_from: string | null } };
+    expect(senderBody.app.mail_from).toBe("Desk <desk@example.com>");
+    const badSender = await app.request(
+      "/admin/apps/myapp",
+      {
+        method: "PATCH",
+        headers: { Authorization: "Bearer test-admin-token", "Content-Type": "application/json" },
+        body: JSON.stringify({ mail_from: "not-an-email" }),
+      },
+      env,
+    );
+    expect(badSender.status).toBe(400);
   });
 
   it("returns stats and license usage that match the database", async () => {

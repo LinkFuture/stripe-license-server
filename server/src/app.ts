@@ -39,6 +39,9 @@ export function createAppHandler(deps: AppDeps = {}) {
 
   app.onError((error, c) => {
     console.log(JSON.stringify({ event: "unhandled", error: String(error) }));
+    if (error instanceof Error && error.message === "issuer_not_configured") {
+      return c.json({ error: "issuer_not_configured" }, 500);
+    }
     return c.json({ error: "internal" }, 500);
   });
 
