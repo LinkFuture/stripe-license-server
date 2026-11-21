@@ -6,7 +6,7 @@ const wranglerSources = import.meta.glob("../../wrangler.toml", {
   query: "?raw",
   import: "default",
   eager: true,
-}) as Record<string, string>;
+});
 
 const DEV_DATABASE_NAME = "stripe-license-dev";
 const DEV_WORKER_NAME = "stripe-license-server-dev";

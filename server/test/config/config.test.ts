@@ -12,7 +12,7 @@ const configSources = import.meta.glob("../../src/config/*.ts", {
   query: "?raw",
   import: "default",
   eager: true,
-}) as Record<string, string>;
+});
 
 const SECRET_PATTERNS: { name: string; pattern: RegExp }[] = [
   { name: "stripe secret key", pattern: /sk_(live|test)_/ },
