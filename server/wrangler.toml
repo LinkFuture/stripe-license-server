@@ -3,6 +3,11 @@ main = "src/index.ts" # Worker entry: Hono app in src/index.ts
 compatibility_date = "2025-12-10"
 compatibility_flags = ["nodejs_compat"]
 
+# Build-time config pick. Non-secret numbers live in src/config/. Secrets stay in Worker env.
+# Top-level (tests and `wrangler dev` without --env) uses dev.
+[define]
+__APP_ENV__ = '"dev"'
+
 # Top-level D1 binding is for local `wrangler dev` and tests. Do not commit a real id.
 # Deployed environments below have their own bindings. The deploy workflow replaces
 # only that environment's placeholder with GitHub D1_DATABASE_ID.
@@ -12,16 +17,11 @@ database_name = "stripe-license"
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
 
-# Local placeholders only. dev and production do not inherit them.
-# Deployed sender and issuer come from GitHub environment variables when set,
-# otherwise from `wrangler secret put --env dev|production`.
-[vars]
-MAIL_FROM = "My App <noreply@example.com>"
-MAIL_REPLY_TO = "support@example.com"
-LICENSE_ISSUER = "https://license.example.com"
-
 [env.dev]
 name = "stripe-license-server-dev"
+
+[env.dev.define]
+__APP_ENV__ = '"dev"'
 
 [[env.dev.d1_databases]]
 binding = "DB"
@@ -29,15 +29,14 @@ database_name = "stripe-license-dev"
 database_id = "00000000-0000-4000-8000-000000000001"
 migrations_dir = "migrations"
 
-[env.dev.vars]
-
 [env.production]
 name = "stripe-license-server"
+
+[env.production.define]
+__APP_ENV__ = '"production"'
 
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "stripe-license"
 database_id = "00000000-0000-4000-8000-000000000002"
 migrations_dir = "migrations"
-
-[env.production.vars]

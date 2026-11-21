@@ -1,5 +1,7 @@
 # Copy to server/.dev.vars for `wrangler dev`. Never commit .dev.vars.
-# All of these are secrets in production (`wrangler secret put`).
+# Every value here is a Worker secret (`wrangler secret put --env dev` or `--env production`).
+# The addresses below are placeholders. Replace them with your own before you send mail
+# or issue tokens. Do not commit the real mailbox or domain.
 
 ADMIN_TOKEN=
 STRIPE_SECRET_KEY=
@@ -8,24 +10,15 @@ RESEND_API_KEY=
 # Required so recovery email can resend keys. 32+ random characters.
 LICENSE_ENCRYPTION_KEY=
 
-# Sender and JWT issuer. Placeholders only — replace with your own domain.
-# MAIL_FROM may be "Display Name <addr>" or a bare address.
-# A secret overrides the wrangler.toml [vars] placeholder.
-MAIL_FROM="My App <noreply@example.com>"
-MAIL_REPLY_TO=support@example.com
+# JWT iss. Required. A real value is a URL on your domain, so it stays a secret.
 LICENSE_ISSUER=https://license.example.com
+# From header. "Display Name <addr>" or a bare address.
+MAIL_FROM="My App <noreply@example.com>"
+# Optional Reply-To.
+MAIL_REPLY_TO=support@example.com
 
 # One Ed25519 PKCS8 PEM per app. The name is APP_KEY_ plus the slug in
 # uppercase, with non-alphanumeric characters replaced by underscores.
 # APP_KEY_MYAPP="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 
-# Optional rate-limit overrides (requests per window).
-# RATE_LIMIT_IP_PER_MIN=120
-# RATE_LIMIT_ACTIVATE_IP_PER_MIN=20
-# RATE_LIMIT_ACTIVATE_KEY_PER_MIN=10
-# RATE_LIMIT_VALIDATE_KEY_PER_MIN=60
-# RATE_LIMIT_RECOVER_IP_PER_MIN=5
-# RATE_LIMIT_RECOVER_EMAIL_PER_HOUR=5
-# RATE_LIMIT_RESET_IP_PER_MIN=10
-# CODE_TTL_SECONDS=900
-# CODE_MAX_ATTEMPTS=5
+# Trial length, reset quota, and rate limits are numbers in src/config/, not secrets.

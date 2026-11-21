@@ -21,9 +21,6 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ vars.CLOUDFLARE_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
       D1_DATABASE_ID: ${{ vars.D1_DATABASE_ID || secrets.D1_DATABASE_ID }}
-      LICENSE_ISSUER: ${{ vars.LICENSE_ISSUER || secrets.LICENSE_ISSUER }}
-      MAIL_FROM: ${{ vars.MAIL_FROM || secrets.MAIL_FROM }}
-      MAIL_REPLY_TO: ${{ vars.MAIL_REPLY_TO || secrets.MAIL_REPLY_TO }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,7 +32,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - name: Inject production D1 id and optional vars
+      - name: Inject production D1 id
         run: bash server/scripts/prepare-deploy.sh production
       - name: Apply production D1 migrations
         uses: cloudflare/wrangler-action@v3.15.0

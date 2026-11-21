@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import { config } from "../../src/config/config";
 import { hitLimit, limits } from "../../src/lib/rate-limit";
-import type { Env } from "../../src/lib/types";
 import { resetDb } from "../helpers/fixtures";
 
 const NOW = new Date("2026-06-01T00:00:00.000Z");
@@ -20,7 +20,7 @@ expect(await hitLimit(env.DB, "plain", 1, 60)).toBe(false);
 expect(await hitLimit(env.DB, "bucket", 0, 60, NOW)).toBe(false);
 expect(await hitLimit(env.DB, "bucket", 1, 60, NOW)).toBe(false);
 expect(await hitLimit(env.DB, "bucket", 1, 60, new Date(NOW.getTime() + 120_000))).toBe(false);
-expect(limits({} as Env).ipPerMin).toBe(120);
-expect(limits({ RATE_LIMIT_IP_PER_MIN: "nope" } as Env).ipPerMin).toBe(120);
+expect(limits()).toBe(config.rateLimits);
+expect(limits().ipPerMin).toBe(240);
   });
 });

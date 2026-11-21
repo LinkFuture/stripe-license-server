@@ -1,4 +1,5 @@
 import { env } from "cloudflare:test";
+import { config, type RateLimits } from "../../src/config/config";
 import { createAppHandler } from "../../src/index";
 import { generateEd25519 } from "../../src/lib/crypto";
 import type { Env, OutboundEmail } from "../../src/lib/types";
@@ -195,4 +196,15 @@ export async function postJson(app: ReturnType<typeof handler>, runtime: Env, pa
 
 export function num(value: unknown): number {
   return Number(value ?? 0);
+}
+
+/** Temporarily replace numeric rate limits. Restores them even when `run` throws. */
+export async function withRateLimits<T>(patch: Partial<RateLimits>, run: () => Promise<T>): Promise<T> {
+  const saved = { ...config.rateLimits };
+  Object.assign(config.rateLimits, patch);
+  try {
+    return await run();
+  } finally {
+    Object.assign(config.rateLimits, saved);
+  }
 }

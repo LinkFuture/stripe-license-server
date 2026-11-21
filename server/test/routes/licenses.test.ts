@@ -10,6 +10,7 @@ import {
   postJson,
   resetDb,
   seedApp,
+  withRateLimits,
 } from "../helpers/fixtures";
 
 async function completeReset(
@@ -116,26 +117,24 @@ describe("activation limits", () => {
   });
 
   it("rate limits activate by IP and by key", async () => {
-    const seeded = await seedApp(env, {
-      extra: { RATE_LIMIT_ACTIVATE_IP_PER_MIN: "2", RATE_LIMIT_ACTIVATE_KEY_PER_MIN: "100" },
-    });
+    const seeded = await seedApp();
     const app = handler();
     const body = { key: "MYAPP-00000-00000-00000-00000", machine_hash: M1 };
-    expect((await postJson(app, seeded.env, "/api/myapp/licenses/activate", body, "198.51.100.8")).status).toBe(400);
-    expect((await postJson(app, seeded.env, "/api/myapp/licenses/activate", body, "198.51.100.8")).status).toBe(400);
-    const blocked = await postJson(app, seeded.env, "/api/myapp/licenses/activate", body, "198.51.100.8");
-    expect(blocked.status).toBe(429);
-    expect(blocked.body.error).toBe("rate_limited");
-
-    const byKey = await seedApp(env, {
-      slug: "other",
-      prefix: "APP",
-      extra: { RATE_LIMIT_ACTIVATE_IP_PER_MIN: "100", RATE_LIMIT_ACTIVATE_KEY_PER_MIN: "2" },
+    await withRateLimits({ activateIpPerMin: 2, activateKeyPerMin: 100 }, async () => {
+      expect((await postJson(app, seeded.env, "/api/myapp/licenses/activate", body, "198.51.100.8")).status).toBe(400);
+      expect((await postJson(app, seeded.env, "/api/myapp/licenses/activate", body, "198.51.100.8")).status).toBe(400);
+      const blocked = await postJson(app, seeded.env, "/api/myapp/licenses/activate", body, "198.51.100.8");
+      expect(blocked.status).toBe(429);
+      expect(blocked.body.error).toBe("rate_limited");
     });
+
+    const byKey = await seedApp(env, { slug: "other", prefix: "APP" });
     const attempt = { key: "APP-00000-00000-00000-00000", machine_hash: M1 };
-    expect((await postJson(app, byKey.env, "/api/other/licenses/activate", attempt, "198.51.100.9")).status).toBe(400);
-    expect((await postJson(app, byKey.env, "/api/other/licenses/activate", attempt, "198.51.100.9")).status).toBe(400);
-    expect((await postJson(app, byKey.env, "/api/other/licenses/activate", attempt, "198.51.100.9")).status).toBe(429);
+    await withRateLimits({ activateIpPerMin: 100, activateKeyPerMin: 2 }, async () => {
+      expect((await postJson(app, byKey.env, "/api/other/licenses/activate", attempt, "198.51.100.9")).status).toBe(400);
+      expect((await postJson(app, byKey.env, "/api/other/licenses/activate", attempt, "198.51.100.9")).status).toBe(400);
+      expect((await postJson(app, byKey.env, "/api/other/licenses/activate", attempt, "198.51.100.9")).status).toBe(429);
+    });
   });
 });
 
@@ -291,7 +290,8 @@ describe("recovery and reset", () => {
   });
 
   it("allows the default of 5 resets in 30 days and rejects the sixth", async () => {
-    const seeded = await seedApp(env, { extra: { RATE_LIMIT_RESET_IP_PER_MIN: "100" } });
+    const seeded = await seedApp();
+    await withRateLimits({ resetIpPerMin: 100 }, async () => {
     const stored = await env.DB.prepare(`SELECT reset_limit, reset_window_days FROM apps WHERE slug = 'myapp'`).first<{
       reset_limit: number;
       reset_window_days: number;
@@ -305,10 +305,12 @@ describe("recovery and reset", () => {
     const blocked = await postJson(app, seeded.env, "/api/myapp/licenses/reset/request", { key });
     expect(blocked.status).toBe(429);
     expect(blocked.body.error).toBe("reset_limit_reached");
+    });
   });
 
   it("treats reset_limit 0 as unlimited", async () => {
-    const seeded = await seedApp(env, { resetLimit: 0, extra: { RATE_LIMIT_RESET_IP_PER_MIN: "100" } });
+    const seeded = await seedApp(env, { resetLimit: 0 });
+    await withRateLimits({ resetIpPerMin: 100 }, async () => {
     const app = handler();
     const key = await issueKey(app, seeded, { sessionId: "cs_reset0", email: "owner@example.com", maxMachines: "1" });
     for (let i = 0; i < 6; i++) {
@@ -320,6 +322,7 @@ describe("recovery and reset", () => {
       )
       .first<{ c: number }>();
     expect(num(resets?.c)).toBe(6);
+    });
   });
 
   it("burns a reset code after 5 wrong attempts", async () => {

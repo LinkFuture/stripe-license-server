@@ -41,7 +41,7 @@ export function mountLicenseRoutes(
   const nowFn = deps.now;
 
   app.use("/api/:app/licenses/*", async (c, next) => {
-    const lim = limits(c.env);
+    const lim = limits();
     const blocked = await hitLimit(c.env.DB, `ip:${clientIp(c)}`, lim.ipPerMin, 60, nowFn());
     if (blocked) return jsonError(c, 429, "rate_limited");
     await next();
@@ -62,7 +62,7 @@ export function mountLicenseRoutes(
     if ("error" in loaded && loaded.error) return loaded.error;
     const body = await readJson(c);
     if (!body.ok) return jsonError(c, 400, "invalid_json");
-    const lim = limits(c.env);
+    const lim = limits();
     const ipBlocked = await hitLimit(
       c.env.DB,
       `activate-ip:${clientIp(c)}`,
@@ -110,7 +110,7 @@ export function mountLicenseRoutes(
     if (!row) return jsonError(c, 404, "app_not_found");
     const body = await readJson(c);
     if (!body.ok) return jsonError(c, 400, "invalid_json");
-    const lim = limits(c.env);
+    const lim = limits();
     const blocked = await hitLimit(c.env.DB, `recover-ip:${clientIp(c)}`, lim.recoverIpPerMin, 60, nowFn());
     if (blocked) return jsonError(c, 429, "rate_limited");
     if (row.status !== "active") {
@@ -126,7 +126,7 @@ export function mountLicenseRoutes(
     if ("error" in loaded && loaded.error) return loaded.error;
     const body = await readJson(c);
     if (!body.ok) return jsonError(c, 400, "invalid_json");
-    const lim = limits(c.env);
+    const lim = limits();
     const blocked = await hitLimit(c.env.DB, `reset-ip:${clientIp(c)}`, lim.resetIpPerMin, 60, nowFn());
     if (blocked) return jsonError(c, 429, "rate_limited");
     return guarded(c, () =>
@@ -139,7 +139,7 @@ export function mountLicenseRoutes(
     if ("error" in loaded && loaded.error) return loaded.error;
     const body = await readJson(c);
     if (!body.ok) return jsonError(c, 400, "invalid_json");
-    const lim = limits(c.env);
+    const lim = limits();
     const blocked = await hitLimit(c.env.DB, `reset-ip:${clientIp(c)}`, lim.resetIpPerMin, 60, nowFn());
     if (blocked) return jsonError(c, 429, "rate_limited");
     return guarded(c, () =>

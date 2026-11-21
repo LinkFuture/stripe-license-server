@@ -17,7 +17,7 @@ import {
 import { signLicenseJwt } from "../../src/lib/tokens";
 import type { AppRow } from "../../src/lib/types";
 import { extendEnv } from "../../src/lib/util";
-import { resetDb, seedApp } from "../helpers/fixtures";
+import { resetDb, seedApp, withRateLimits } from "../helpers/fixtures";
 
 const HASH = "a".repeat(64);
 const NOW = new Date("2026-06-01T00:00:00.000Z");
@@ -80,13 +80,15 @@ describe("licensing edges", () => {
     await env.DB.prepare(`UPDATE apps SET status = 'active' WHERE slug = 'myapp'`).run();
     const current = await row();
     await env.DB.prepare(`DELETE FROM rate_limits`).run();
-    const tightActivate = extendEnv(seeded.env, { RATE_LIMIT_ACTIVATE_KEY_PER_MIN: "1" });
-    await activate({ env: tightActivate, app: current, ip: "1.1.1.1", now: NOW, body: { key: plain, machine_hash: HASH } });
-    await expectHttp(() => activate({ env: tightActivate, app: current, ip: "1.1.1.1", now: NOW, body: { key: plain, machine_hash: HASH } }), "rate_limited");
+    await withRateLimits({ activateKeyPerMin: 1 }, async () => {
+      await activate({ env: seeded.env, app: current, ip: "1.1.1.1", now: NOW, body: { key: plain, machine_hash: HASH } });
+      await expectHttp(() => activate({ env: seeded.env, app: current, ip: "1.1.1.1", now: NOW, body: { key: plain, machine_hash: HASH } }), "rate_limited");
+    });
     await env.DB.prepare(`DELETE FROM rate_limits`).run();
-    const tight = extendEnv(seeded.env, { RATE_LIMIT_VALIDATE_KEY_PER_MIN: "1" });
-    await validate({ env: tight, app: current, ip: "1.1.1.1", now: NOW, body: { key: plain, machine_hash: HASH } });
-    await expectHttp(() => validate({ env: tight, app: current, ip: "1.1.1.1", now: NOW, body: { key: plain, machine_hash: HASH } }), "rate_limited");
+    await withRateLimits({ validateKeyPerMin: 1 }, async () => {
+      await validate({ env: seeded.env, app: current, ip: "1.1.1.1", now: NOW, body: { key: plain, machine_hash: HASH } });
+      await expectHttp(() => validate({ env: seeded.env, app: current, ip: "1.1.1.1", now: NOW, body: { key: plain, machine_hash: HASH } }), "rate_limited");
+    });
     const recovered = await recover({
       env: extendEnv(seeded.env, { LICENSE_ENCRYPTION_KEY: "" }),
       send: async () => undefined,
@@ -104,10 +106,11 @@ describe("licensing edges", () => {
       ip: "1.1.1.1",
       now: NOW,
     }), "mail_from_unset");
-    const limited = extendEnv(seeded.env, { RATE_LIMIT_RECOVER_EMAIL_PER_HOUR: "1" });
     const again = await row();
-    await recover({ env: limited, send: async () => undefined, app: again, body: { email: "owner@example.com" }, ip: "1.1.1.1", now: NOW });
-    await expectHttp(() => recover({ env: limited, send: async () => undefined, app: again, body: { email: "owner@example.com" }, ip: "1.1.1.1", now: NOW }), "rate_limited");
+    await withRateLimits({ recoverEmailPerHour: 1 }, async () => {
+      await recover({ env: seeded.env, send: async () => undefined, app: again, body: { email: "owner@example.com" }, ip: "1.1.1.1", now: NOW });
+      await expectHttp(() => recover({ env: seeded.env, send: async () => undefined, app: again, body: { email: "owner@example.com" }, ip: "1.1.1.1", now: NOW }), "rate_limited");
+    });
     await expect(recover({
       env: extendEnv(seeded.env, { MAIL_FROM: "" }),
       send: async () => undefined,

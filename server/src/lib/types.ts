@@ -5,19 +5,12 @@ export interface Env {
   STRIPE_WEBHOOK_SECRET?: string;
   RESEND_API_KEY?: string;
   LICENSE_ENCRYPTION_KEY?: string;
+  /** JWT iss. Secret, because a real issuer is a domain. No built-in default. */
   LICENSE_ISSUER?: string;
+  /** From header. Secret, because a real sender is an email address. */
   MAIL_FROM?: string;
+  /** Reply-To header. Secret, because a real reply address is an email. */
   MAIL_REPLY_TO?: string;
-  RATE_LIMIT_IP_PER_MIN?: string;
-  RATE_LIMIT_ACTIVATE_IP_PER_MIN?: string;
-  RATE_LIMIT_ACTIVATE_KEY_PER_MIN?: string;
-  RATE_LIMIT_VALIDATE_KEY_PER_MIN?: string;
-  RATE_LIMIT_RECOVER_IP_PER_MIN?: string;
-  RATE_LIMIT_RECOVER_EMAIL_PER_HOUR?: string;
-  RATE_LIMIT_RESET_IP_PER_MIN?: string;
-  CODE_TTL_SECONDS?: string;
-  CODE_MAX_ATTEMPTS?: string;
-  TEST_MIGRATIONS?: unknown;
 }
 
 export interface AppRow {

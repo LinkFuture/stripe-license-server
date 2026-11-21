@@ -272,9 +272,9 @@ curl -s -X POST "$LICENSE_API_BASE/api/admin/apps" \
 
 `myapp` becomes `APP_KEY_MYAPP`. Store that PEM with `wrangler secret put APP_KEY_MYAPP --env dev` or `--env production`, matching the Worker you called.
 
-The top-level `[vars]` in `wrangler.toml` (`LICENSE_ISSUER`, `MAIL_FROM`, `MAIL_REPLY_TO`) are example.com placeholders for local `wrangler dev`. Environments do not inherit them. Set each environment's issuer and sender as GitHub environment variables of the same names (the deploy job writes them into that env only) or with `wrangler secret put <NAME> --env dev` / `--env production`. A secret overrides a var of the same name.
+Non-secret numbers (trial length, offline grace, inactive-device window, reset quota, rate limits, reset-code lifetime) live in `server/src/config/`. `config.ts` holds the shared defaults. `config.dev.ts` and `config.production.ts` hold only numeric overrides. Wrangler selects the file at build time with `define.__APP_ENV__`: `"dev"` for local `wrangler dev`, tests, and `--env dev`; `"production"` for `--env production`. There is no runtime variable for those numbers.
 
-Optional rate-limit vars are listed in `server/.dev.vars.example`. Copy that file to `server/.dev.vars` for `wrangler dev`. Never commit `.dev.vars`.
+`LICENSE_ISSUER`, `MAIL_FROM`, and `MAIL_REPLY_TO` are Worker secrets, not config fields. A real issuer is a domain and a real sender is an email address, and this repo is public, so those strings are not committed. Set them with `wrangler secret put <NAME> --env dev` and again with `--env production`. `server/.dev.vars.example` shows example.com placeholders. Copy it to `server/.dev.vars` for local `wrangler dev`, replace the placeholders, and never commit `.dev.vars`.
 
 Local database (top-level config, not an environment):
 
@@ -296,6 +296,7 @@ printf '%s' 're_...' | npx wrangler secret put RESEND_API_KEY --env dev
 printf '%s' 'a-long-random-encryption-key' | npx wrangler secret put LICENSE_ENCRYPTION_KEY --env dev
 printf '%s' 'https://license-dev.example.com' | npx wrangler secret put LICENSE_ISSUER --env dev
 printf '%s' 'My App <noreply@example.com>' | npx wrangler secret put MAIL_FROM --env dev
+printf '%s' 'support@example.com' | npx wrangler secret put MAIL_REPLY_TO --env dev
 npx wrangler secret put APP_KEY_MYAPP --env dev
 npx wrangler d1 migrations apply DB --remote --env dev
 npx wrangler deploy --env dev
@@ -325,6 +326,7 @@ printf '%s' 're_...' | npx wrangler secret put RESEND_API_KEY --env production
 printf '%s' 'a-different-encryption-key' | npx wrangler secret put LICENSE_ENCRYPTION_KEY --env production
 printf '%s' 'https://license.example.com' | npx wrangler secret put LICENSE_ISSUER --env production
 printf '%s' 'My App <noreply@example.com>' | npx wrangler secret put MAIL_FROM --env production
+printf '%s' 'support@example.com' | npx wrangler secret put MAIL_REPLY_TO --env production
 npx wrangler secret put APP_KEY_MYAPP --env production
 npx wrangler d1 migrations apply DB --remote --env production
 npx wrangler deploy --env production
@@ -332,7 +334,7 @@ npx wrangler deploy --env production
 
 Use a Resend key that belongs to this environment. A production-signed token will not verify in dev.
 
-Verify the sending domain in Resend before mail from `MAIL_FROM` will be delivered. Follow [Resend’s domain verification](https://resend.com/docs/dashboard/domains/introduction) and add the records it shows. `MAIL_FROM` and `LICENSE_ISSUER` in `wrangler.toml` are placeholders. Replace them with your own values, or set the same names with `wrangler secret put` (a secret overrides the var). `POST /api/admin/apps` and `PATCH /api/admin/apps/{slug}` accept `mail_from` for one app; leave it empty to use `MAIL_FROM`. The value may include a display name: `My App <noreply@example.com>`.
+Verify the sending domain in Resend before mail from `MAIL_FROM` will be delivered. Follow [Resend’s domain verification](https://resend.com/docs/dashboard/domains/introduction) and add the records it shows. Replace the example.com placeholders in the `wrangler secret put` commands above with your own sender and issuer before the first real deploy. `POST /api/admin/apps` and `PATCH /api/admin/apps/{slug}` accept `mail_from` for one app; leave it empty to use the `MAIL_FROM` secret. The value may include a display name: `My App <noreply@example.com>`.
 
 Sending through Resend from an address that already exists, such as `noreply@example.com`, is fine. Replies still arrive at the mailbox that address already uses. Leave the root domain’s current MX and SPF records unchanged. Resend’s SPF (TXT) and MX (bounce) records belong on the `send` subdomain, and the DKIM record (`resend._domainkey`) is added as Resend displays it. Those names do not overlap the records the existing mailbox provider uses, so both can stay in place.
 
@@ -427,7 +429,7 @@ Server tests run on the Workers Vitest pool (Miniflare + D1) and cover webhook i
 
 ## Security
 
-- Do not commit real domains or mailbox addresses. `server/.dev.vars` is gitignored. Production secrets are `ADMIN_TOKEN`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`, `LICENSE_ENCRYPTION_KEY`, and one `APP_KEY_<SLUG>` per app. `MAIL_FROM`, `MAIL_REPLY_TO`, and `LICENSE_ISSUER` are configuration; the committed values are example.com placeholders.
+- Do not commit real domains or mailbox addresses. `server/.dev.vars` is gitignored. Secrets are `ADMIN_TOKEN`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`, `LICENSE_ENCRYPTION_KEY`, `MAIL_FROM`, `MAIL_REPLY_TO`, `LICENSE_ISSUER`, and one `APP_KEY_<SLUG>` per app. `server/src/config/` holds only numbers. The example.com values in `.dev.vars.example` and this README are placeholders; replace them when you set the secrets.
 - Admin authentication compares SHA-256 digests of the presented token and `ADMIN_TOKEN` in constant time. An empty token is rejected.
 - Webhook signatures are required. The raw body is what is signed.
 - Public routes are rate limited in D1 per IP. Activate is additionally limited per IP and per submitted key. Recover is limited per IP and per email. Reset is limited per IP, and successful resets are limited per license.

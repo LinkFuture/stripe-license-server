@@ -7,13 +7,16 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 export default defineWorkersConfig(async () => {
   const migrations = await readD1Migrations(path.join(root, "migrations"));
   return {
+    define: {
+      __APP_ENV__: JSON.stringify("dev"),
+    },
     test: {
       include: ["test/**/*.test.ts"],
       setupFiles: ["./test/helpers/apply-migrations.ts"],
       testTimeout: 30000,
       coverage: {
         provider: "istanbul",
-        include: ["src/lib/**/*.ts"],
+        include: ["src/lib/**/*.ts", "src/config/**/*.ts"],
         exclude: ["src/lib/types.ts"],
         reporter: ["text", "json-summary"],
         thresholds: {
@@ -21,6 +24,12 @@ export default defineWorkersConfig(async () => {
           functions: 100,
           statements: 98,
           branches: 91,
+          "src/config/**/*.ts": {
+            lines: 100,
+            functions: 100,
+            statements: 100,
+            branches: 100,
+          },
         },
       },
       poolOptions: {

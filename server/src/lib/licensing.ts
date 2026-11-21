@@ -76,7 +76,7 @@ export async function activate(opts: {
   if (!machineHash || !machineHashOk(machineHash)) throw new HttpError(400, "invalid_machine");
   const hash = normalizeMachineHash(machineHash);
   const { license } = await loadLicense(env.DB, app, body.key);
-  const lim = limits(env);
+  const lim = limits();
   if (await hitLimit(env.DB, `activate-key:${license.key_hash}`, lim.activateKeyPerMin, 60, now)) {
     throw new HttpError(429, "rate_limited");
   }
@@ -144,7 +144,7 @@ export async function validate(opts: {
   if (!machineHash || !machineHashOk(machineHash)) throw new HttpError(400, "invalid_machine");
   const hash = normalizeMachineHash(machineHash);
   const { license } = await loadLicense(env.DB, app, body.key);
-  const lim = limits(env);
+  const lim = limits();
   if (await hitLimit(env.DB, `validate-key:${license.key_hash}`, lim.validateKeyPerMin, 60, now)) {
     throw new HttpError(429, "rate_limited");
   }
@@ -310,7 +310,7 @@ export async function recover(opts: {
     message: "If a license exists for this email, it has been sent.",
   };
   const email = str(body.email, 320)?.toLowerCase() ?? "";
-  const lim = limits(env);
+  const lim = limits();
   if (
     email &&
     (await hitLimit(env.DB, `recover-email:${app.id}:${email}`, lim.recoverEmailPerHour, 3600, now))
@@ -401,7 +401,7 @@ export async function requestReset(opts: {
   const from = resolveMailFrom(env, app.mail_from);
   if (!from) throw new HttpError(500, "mail_from_unset");
   await assertResetAllowed(env.DB, app, license.id, now);
-  const lim = limits(env);
+  const lim = limits();
   const code = randomDigits(6);
   const codeHash = await hashCode(code, license.id, env.LICENSE_ENCRYPTION_KEY);
   const expires = new Date(now.getTime() + lim.codeTtlSeconds * 1000).toISOString();
@@ -460,7 +460,7 @@ export async function confirmReset(opts: {
       expires_at: string;
     }>();
   if (!row) throw new HttpError(400, "invalid_code");
-  const lim = limits(env);
+  const lim = limits();
   if (row.attempts >= lim.codeMaxAttempts) throw new HttpError(400, "invalid_code");
   if (Date.parse(row.expires_at) < now.getTime()) throw new HttpError(400, "invalid_code");
   const expected = await hashCode(code, license.id, env.LICENSE_ENCRYPTION_KEY);
