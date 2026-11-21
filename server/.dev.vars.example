@@ -1,0 +1,24 @@
+# Copy to server/.dev.vars for `wrangler dev`. Never commit .dev.vars.
+# Every value here is a Worker secret (`wrangler secret put --env dev` or `--env production`).
+# The addresses below are placeholders. Replace them with your own before you send mail
+# or issue tokens. Do not commit the real mailbox or domain.
+
+ADMIN_TOKEN=
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+RESEND_API_KEY=
+# Required so recovery email can resend keys. 32+ random characters.
+LICENSE_ENCRYPTION_KEY=
+
+# JWT iss. Required. A real value is a URL on your domain, so it stays a secret.
+LICENSE_ISSUER=https://license.example.com
+# From header. "Display Name <addr>" or a bare address.
+MAIL_FROM="My App <noreply@example.com>"
+# Optional Reply-To.
+MAIL_REPLY_TO=support@example.com
+
+# One Ed25519 PKCS8 PEM per app. The name is APP_KEY_ plus the slug in
+# uppercase, with non-alphanumeric characters replaced by underscores.
+# APP_KEY_MYAPP="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+
+# Trial length, reset quota, and rate limits are numbers in src/config/, not secrets.
