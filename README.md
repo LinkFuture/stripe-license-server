@@ -249,26 +249,19 @@ Subscribe to:
 
 ## Deploy
 
+Dev and production are separate Workers, separate D1 databases, and separate runtime secrets. A token signed by one environment fails verification in the other because each environment has its own `LICENSE_ISSUER` and its own `APP_KEY_<SLUG>` keypair. Create both GitHub environments (`dev` and `production`) and both D1 databases before the first deploy. Do not commit real database ids. The top-level `database_id` in `server/wrangler.toml` is only for local `wrangler dev` and tests. `[env.dev]` and `[env.production]` use different placeholders; the deploy job for that environment replaces only its own placeholder.
+
 From `server/` after `npm install` at the repo root:
 
 ```bash
 npx wrangler login
+npx wrangler d1 create stripe-license-dev
 npx wrangler d1 create stripe-license
 ```
 
-`wrangler d1 create` prints a database UUID. Leave the placeholder `database_id` in `server/wrangler.toml` and do not commit the real id. Publishing a release substitutes the GitHub variable `D1_DATABASE_ID` (see [Continuous deployment](#continuous-deployment)). For a one-off deploy from a laptop, replace the placeholder in your local checkout, run the commands below, and leave that edit uncommitted.
+Put each printed UUID on that GitHub environment as `D1_DATABASE_ID` (variable or secret). For a one-off deploy from a laptop, replace only that environment's placeholder in your local checkout, run the commands in the matching section below, and leave the edit uncommitted.
 
-```bash
-npx wrangler d1 migrations apply stripe-license --remote
-printf '%s' 'a-long-random-admin-token' | npx wrangler secret put ADMIN_TOKEN
-printf '%s' 'whsec_...' | npx wrangler secret put STRIPE_WEBHOOK_SECRET
-printf '%s' 'sk_live_...' | npx wrangler secret put STRIPE_SECRET_KEY
-printf '%s' 're_...' | npx wrangler secret put RESEND_API_KEY
-printf '%s' 'a-long-random-encryption-key' | npx wrangler secret put LICENSE_ENCRYPTION_KEY
-npx wrangler deploy
-```
-
-Register an app (this prints the Ed25519 private key once; it is not written to D1):
+Register an app against the environment you just deployed (this prints the Ed25519 private key once; it is not written to D1). Repeat it for the other environment so each one has its own keypair:
 
 ```bash
 curl -s -X POST "$LICENSE_API_BASE/api/admin/apps" \
@@ -277,25 +270,67 @@ curl -s -X POST "$LICENSE_API_BASE/api/admin/apps" \
   -d '{"slug":"myapp","name":"My App","key_prefix":"MYAPP","trial_days":30,"offline_grace_days":30}'
 ```
 
-Store the printed PKCS8 PEM as the secret for that slug. `myapp` becomes `APP_KEY_MYAPP`:
+`myapp` becomes `APP_KEY_MYAPP`. Store that PEM with `wrangler secret put APP_KEY_MYAPP --env dev` or `--env production`, matching the Worker you called.
 
-```bash
-npx wrangler secret put APP_KEY_MYAPP
-```
-
-Non-secret defaults live in `wrangler.toml` `[vars]`:
-
-- `LICENSE_ISSUER` = `https://license.example.com` (placeholder; replace it)
-- `MAIL_FROM` = `My App <noreply@example.com>` (placeholder; replace it)
-- `MAIL_REPLY_TO` = `support@example.com` (optional placeholder)
+The top-level `[vars]` in `wrangler.toml` (`LICENSE_ISSUER`, `MAIL_FROM`, `MAIL_REPLY_TO`) are example.com placeholders for local `wrangler dev`. Environments do not inherit them. Set each environment's issuer and sender as GitHub environment variables of the same names (the deploy job writes them into that env only) or with `wrangler secret put <NAME> --env dev` / `--env production`. A secret overrides a var of the same name.
 
 Optional rate-limit vars are listed in `server/.dev.vars.example`. Copy that file to `server/.dev.vars` for `wrangler dev`. Never commit `.dev.vars`.
 
-Local database:
+Local database (top-level config, not an environment):
 
 ```bash
 npm run db:migrate:local -w server
 ```
+
+### Dev
+
+Worker name `stripe-license-server-dev`. URL `https://stripe-license-server-dev.<account-subdomain>.workers.dev`. Stripe webhook `https://stripe-license-server-dev.<account-subdomain>.workers.dev/api/stripe/webhook`, created in Stripe **test** mode. Use Stripe test keys (`sk_test_...` and the test endpoint's `whsec_...`). `LICENSE_ISSUER` must be the dev issuer, not the production one.
+
+GitHub environment name: `dev`. The workflow [`.github/workflows/deploy-dev.yml`](.github/workflows/deploy-dev.yml) runs on every push to `main`. It reads `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `D1_DATABASE_ID` from that environment's variables or secrets. The API token needs Workers Scripts: Edit, D1: Edit, and Account Settings: Read.
+
+```bash
+printf '%s' 'a-long-random-admin-token' | npx wrangler secret put ADMIN_TOKEN --env dev
+printf '%s' 'whsec_test_...' | npx wrangler secret put STRIPE_WEBHOOK_SECRET --env dev
+printf '%s' 'sk_test_...' | npx wrangler secret put STRIPE_SECRET_KEY --env dev
+printf '%s' 're_...' | npx wrangler secret put RESEND_API_KEY --env dev
+printf '%s' 'a-long-random-encryption-key' | npx wrangler secret put LICENSE_ENCRYPTION_KEY --env dev
+printf '%s' 'https://license-dev.example.com' | npx wrangler secret put LICENSE_ISSUER --env dev
+printf '%s' 'My App <noreply@example.com>' | npx wrangler secret put MAIL_FROM --env dev
+npx wrangler secret put APP_KEY_MYAPP --env dev
+npx wrangler d1 migrations apply DB --remote --env dev
+npx wrangler deploy --env dev
+```
+
+Use a Resend key that belongs to this environment. A dev-signed token will not verify in production.
+
+### Production
+
+Worker name `stripe-license-server`. URL `https://stripe-license-server.<account-subdomain>.workers.dev`. Stripe webhook `https://stripe-license-server.<account-subdomain>.workers.dev/api/stripe/webhook`, created in Stripe **live** mode. Use live keys (`sk_live_...` and the live endpoint's `whsec_...`). `LICENSE_ISSUER` must be the production issuer. Do not reuse the dev admin token, encryption key, Resend key, webhook secret, or `APP_KEY_<SLUG>` private key.
+
+GitHub environment name: `production`. The workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) runs when a GitHub Release is published and checks out that tag. It reads `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `D1_DATABASE_ID` from that environment's variables or secrets. The API token needs Workers Scripts: Edit, D1: Edit, and Account Settings: Read.
+
+On **Settings → Environments → production**, turn on **Required reviewers** so a release does not deploy until you approve it:
+
+1. Under **Deployment protection rules**, check **Required reviewers**.
+2. Add the owner (and anyone else who may approve). Up to six reviewers.
+3. Save the protection rules.
+
+Publishing a release starts the workflow. Tests run, then the job stays **Waiting** until a required reviewer approves it. Rejecting or leaving it waiting means Wrangler does not run.
+
+```bash
+printf '%s' 'a-different-admin-token' | npx wrangler secret put ADMIN_TOKEN --env production
+printf '%s' 'whsec_live_...' | npx wrangler secret put STRIPE_WEBHOOK_SECRET --env production
+printf '%s' 'sk_live_...' | npx wrangler secret put STRIPE_SECRET_KEY --env production
+printf '%s' 're_...' | npx wrangler secret put RESEND_API_KEY --env production
+printf '%s' 'a-different-encryption-key' | npx wrangler secret put LICENSE_ENCRYPTION_KEY --env production
+printf '%s' 'https://license.example.com' | npx wrangler secret put LICENSE_ISSUER --env production
+printf '%s' 'My App <noreply@example.com>' | npx wrangler secret put MAIL_FROM --env production
+npx wrangler secret put APP_KEY_MYAPP --env production
+npx wrangler d1 migrations apply DB --remote --env production
+npx wrangler deploy --env production
+```
+
+Use a Resend key that belongs to this environment. A production-signed token will not verify in dev.
 
 Verify the sending domain in Resend before mail from `MAIL_FROM` will be delivered. Follow [Resend’s domain verification](https://resend.com/docs/dashboard/domains/introduction) and add the records it shows. `MAIL_FROM` and `LICENSE_ISSUER` in `wrangler.toml` are placeholders. Replace them with your own values, or set the same names with `wrangler secret put` (a secret overrides the var). `POST /api/admin/apps` and `PATCH /api/admin/apps/{slug}` accept `mail_from` for one app; leave it empty to use `MAIL_FROM`. The value may include a display name: `My App <noreply@example.com>`.
 
@@ -322,36 +357,11 @@ Changing `max_machines` on an existing license is a direct SQL update. There is 
 
 ## Continuous deployment
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `npm ci`, typecheck, lint, and test on every pull request and on every push to `main`. It uses no secrets.
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `npm ci`, typecheck, lint, and coverage on pull requests only. It uses no secrets.
 
-[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) runs only when a GitHub Release is published, and when someone starts it with `workflow_dispatch`. It checks out the release tag (or, for a manual run, the ref you select), runs `npm ci` and `npm test`, and deploys only if the tests pass. It does not run on `pull_request`, so a fork pull request cannot receive production credentials.
+Pushes to `main` are handled by [`.github/workflows/deploy-dev.yml`](.github/workflows/deploy-dev.yml), which runs `npm ci`, typecheck, and tests, then applies the dev D1 migrations and deploys `stripe-license-server-dev`. Neither deploy workflow runs on `pull_request`, so a fork pull request cannot receive environment credentials. Store Cloudflare credentials on the GitHub environment (`dev` or `production`), not as repository secrets. A repository secret is available to every workflow. An environment secret or variable is injected only into a job that names that environment.
 
-The deploy job is the only job that sets `environment: production`. Create that environment under **Settings → Environments**. Store the Cloudflare credentials as **Environment secrets** of `production`, not as repository secrets. A repository secret is available to every workflow in the repo. An environment secret is injected only into a job that names that environment, so in this repo only the deploy job can read them. The test job in the deploy workflow does not use the environment and does not receive them.
-
-| Name | Where | Purpose |
-| --- | --- | --- |
-| `CLOUDFLARE_API_TOKEN` | `production` environment secret | Cloudflare API token |
-| `CLOUDFLARE_ACCOUNT_ID` | `production` environment secret | Cloudflare account id |
-| `D1_DATABASE_ID` | `production` environment variable | UUID from `wrangler d1 create stripe-license` |
-
-On the same environment, turn on **Required reviewers** so a release does not deploy until you approve it:
-
-1. Open **Settings → Environments → production**.
-2. Under **Deployment protection rules**, check **Required reviewers**.
-3. Add the owner (and anyone else who may approve). Up to six reviewers.
-4. Save the protection rules.
-
-Publishing a release still starts the workflow. Tests run immediately. The deploy job then stays **Waiting** until a required reviewer approves it on the Actions run page. Approval is also required for a manual `workflow_dispatch` run. Rejecting or leaving it waiting means Wrangler does not run.
-
-The workflow writes `D1_DATABASE_ID` over the placeholder `database_id` in `server/wrangler.toml` on the runner, then uses `cloudflare/wrangler-action` to run `wrangler d1 migrations apply stripe-license --remote` and `wrangler deploy` in `server/`.
-
-Create the API token with these account permissions:
-
-- Workers Scripts: Edit
-- D1: Edit
-- Account Settings: Read
-
-Worker runtime secrets are not stored in GitHub. Set each one once with `wrangler secret put`: `ADMIN_TOKEN`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`, `LICENSE_ENCRYPTION_KEY`, and `APP_KEY_<SLUG>` for every app. `MAIL_FROM`, `MAIL_REPLY_TO`, and `LICENSE_ISSUER` may be vars or secrets; replace the example.com placeholders before you send mail. Publishing another release does not clear them.
+Each deploy job applies migrations before it deploys: `wrangler d1 migrations apply DB --remote --env dev` or `--env production`. The migration step has no `continue-on-error`. If it fails, the job stops and Wrangler does not deploy. After a successful deploy, the job writes the Worker URL to the GitHub step summary. A later deploy does not clear Worker secrets already set with `wrangler secret put`.
 
 ## Client SDK
 

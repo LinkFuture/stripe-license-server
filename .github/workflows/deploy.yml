@@ -1,75 +1,69 @@
-name: Deploy
+name: Deploy production
 
-# A published GitHub Release deploys that tag. workflow_dispatch deploys the
-# selected ref. There is no pull_request trigger: fork PRs must not receive
-# production secrets.
+# A published GitHub Release deploys that tag to production.
+# There is no pull_request trigger: fork PRs must not receive production secrets.
 on:
   release:
     types: [published]
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: production-deploy
+  group: deploy-production
   cancel-in-progress: false
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.release.tag_name || github.ref }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm test
-
   deploy:
-    needs: test
     runs-on: ubuntu-latest
     environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ vars.CLOUDFLARE_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      D1_DATABASE_ID: ${{ vars.D1_DATABASE_ID || secrets.D1_DATABASE_ID }}
+      LICENSE_ISSUER: ${{ vars.LICENSE_ISSUER || secrets.LICENSE_ISSUER }}
+      MAIL_FROM: ${{ vars.MAIL_FROM || secrets.MAIL_FROM }}
+      MAIL_REPLY_TO: ${{ vars.MAIL_REPLY_TO || secrets.MAIL_REPLY_TO }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || github.ref }}
+          ref: ${{ github.event.release.tag_name }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Substitute D1 database id
-        working-directory: server
+      - run: npm run typecheck
+      - run: npm test
+      - name: Inject production D1 id and optional vars
+        run: bash server/scripts/prepare-deploy.sh production
+      - name: Apply production D1 migrations
+        uses: cloudflare/wrangler-action@v3.15.0
+        with:
+          apiToken: ${{ env.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: server
+          wranglerVersion: "4.165.0"
+          command: d1 migrations apply DB --remote --env production
+      - name: Deploy production Worker
+        id: deploy
+        uses: cloudflare/wrangler-action@v3.15.0
+        with:
+          apiToken: ${{ env.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: server
+          wranglerVersion: "4.165.0"
+          command: deploy --env production
+      - name: Record production Worker URL
         env:
-          D1_DATABASE_ID: ${{ vars.D1_DATABASE_ID }}
+          DEPLOY_URL: ${{ steps.deploy.outputs.deployment-url }}
+          DEPLOY_LOG: ${{ steps.deploy.outputs.command-output }}
         run: |
-          if [[ ! "$D1_DATABASE_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
-            echo "Set the production environment variable D1_DATABASE_ID to the D1 database UUID."
-            exit 1
-          fi
-          placeholder="00000000-0000-0000-0000-000000000000"
-          if ! grep -q "database_id = \"${placeholder}\"" wrangler.toml; then
-            echo "server/wrangler.toml is missing the placeholder database_id."
-            exit 1
-          fi
-          sed -i "s/database_id = \"${placeholder}\"/database_id = \"${D1_DATABASE_ID}\"/" wrangler.toml
-      - name: Apply D1 migrations
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: server
-          wranglerVersion: "4"
-          command: d1 migrations apply stripe-license --remote
-      - name: Deploy Worker
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: server
-          wranglerVersion: "4"
-          command: deploy
+          {
+            echo "### Production Worker"
+            if [ -n "$DEPLOY_URL" ]; then
+              echo "$DEPLOY_URL"
+            else
+              printf '%s\n' "$DEPLOY_LOG" | grep -Eo 'https://[A-Za-z0-9._-]+\.workers\.dev' | head -1
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
