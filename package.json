@@ -8,8 +8,9 @@
     "packages/license-client"
   ],
   "scripts": {
-    "test": "npm run test -w server && npm run test -w @linkfuture/license-client",
-    "test:coverage": "npm run test:coverage -w server && npm run test -w @linkfuture/license-client",
+    "check:tests": "node scripts/check-test-mirror.mjs --self-test",
+    "test": "npm run check:tests && npm run test -w server && npm run test -w @linkfuture/license-client",
+    "test:coverage": "npm run check:tests && npm run test:coverage -w server && npm run test -w @linkfuture/license-client",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w @linkfuture/license-client",
     "lint": "eslint .",
     "admin": "npm run admin -w server --"

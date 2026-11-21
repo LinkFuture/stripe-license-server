@@ -8,7 +8,8 @@ export default defineWorkersConfig(async () => {
   const migrations = await readD1Migrations(path.join(root, "migrations"));
   return {
     test: {
-      setupFiles: ["./test/apply-migrations.ts"],
+      include: ["test/**/*.test.ts"],
+      setupFiles: ["./test/helpers/apply-migrations.ts"],
       testTimeout: 30000,
       coverage: {
         provider: "istanbul",
