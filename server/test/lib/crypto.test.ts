@@ -1,6 +1,7 @@
 import { importSPKI, jwtVerify } from "jose";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  checkSigningKey,
   decryptSecret,
   encryptSecret,
   generateEd25519,
@@ -52,6 +53,20 @@ const checked = await jwtVerify(token, await importSPKI(pair.publicKeyPem, "EdDS
       audience: "myapp",
     });
 expect(checked.payload.mid).toBe(HASH);
+  });
+});
+
+describe("signing key check", () => {
+  it("accepts the matching key, caches it, and rejects a missing or foreign key", async () => {
+    const pair = await generateEd25519();
+    const other = await generateEd25519();
+    expect(await checkSigningKey(pair.privateKeyPem, pair.publicKeyPem)).toBe("ok");
+    expect(await checkSigningKey(pair.privateKeyPem, pair.publicKeyPem, "myapp")).toBe("ok");
+    expect(await checkSigningKey(pair.privateKeyPem, pair.publicKeyPem, "myapp")).toBe("ok");
+    expect(await checkSigningKey(undefined, pair.publicKeyPem, "myapp")).toBe("missing");
+    expect(await checkSigningKey("   ", pair.publicKeyPem, "myapp")).toBe("missing");
+    expect(await checkSigningKey(other.privateKeyPem, pair.publicKeyPem, "myapp")).toBe("mismatch");
+    expect(await checkSigningKey("not-a-pem", pair.publicKeyPem, "myapp")).toBe("mismatch");
   });
 });
 

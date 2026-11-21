@@ -1,4 +1,4 @@
-import { importPKCS8, importSPKI, SignJWT } from "jose";
+import { importPKCS8, importSPKI, jwtVerify, SignJWT } from "jose";
 import { bytesToB64, b64ToBytes, pemFromBuffer, sha256Hex } from "./util";
 
 const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -78,6 +78,35 @@ export async function decryptSecret(payload: string, secret: string): Promise<st
   const key = await aesKey(secret);
   const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
   return new TextDecoder().decode(plain);
+}
+
+const signingKeyOk = new Map<string, true>();
+
+export type SigningKeyCheck = "ok" | "missing" | "mismatch";
+
+/** Confirm the private key can sign and that the stored public key accepts that signature. */
+export async function checkSigningKey(
+  privateKeyPem: string | undefined,
+  publicKeyPem: string,
+  cacheId = "",
+): Promise<SigningKeyCheck> {
+  const privateKey = privateKeyPem?.trim();
+  if (!privateKey) return "missing";
+  const cacheKey = `${cacheId}\0${privateKey}\0${publicKeyPem}`;
+  if (signingKeyOk.get(cacheKey)) return "ok";
+  try {
+    const token = await new SignJWT({ probe: "license-key-check" })
+      .setProtectedHeader({ alg: "EdDSA" })
+      .setSubject("key-check")
+      .setIssuedAt()
+      .setExpirationTime("2m")
+      .sign(await importPKCS8(privateKey, "EdDSA"));
+    await jwtVerify(token, await importSPKI(publicKeyPem, "EdDSA"), { algorithms: ["EdDSA"] });
+    signingKeyOk.set(cacheKey, true);
+    return "ok";
+  } catch {
+    return "mismatch";
+  }
 }
 
 export async function signToken(opts: {

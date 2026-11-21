@@ -10,8 +10,10 @@ import {
   revokeLicense,
   stats,
 } from "../lib/admin";
+import { checkSigningKey } from "../lib/crypto";
+import { getAppBySlug } from "../lib/db";
 import type { Env } from "../lib/types";
-import { clientIp, jsonError, readJson } from "../lib/util";
+import { appPrivateKey, clientIp, jsonError, readJson } from "../lib/util";
 
 function scoped(url: string, app: string): URL {
   const next = new URL(url);
@@ -73,6 +75,16 @@ export function mountAdminRoutes(app: Hono<{ Bindings: Env }>, deps: { now: () =
     if (!Number.isInteger(id) || id < 1) return jsonError(c, 400, "invalid_id");
     const result = await deleteActivation(c.env, id, clientIp(c), nowFn(), c.req.param("app") ?? "");
     return c.json(result.body, result.status);
+  });
+
+  app.get("/api/:app/admin/key-check", async (c) => {
+    const slug = c.req.param("app") ?? "";
+    const row = await getAppBySlug(c.env.DB, slug);
+    if (!row) return jsonError(c, 404, "app_not_found");
+    const status = await checkSigningKey(appPrivateKey(c.env, row.slug), row.public_key, row.slug);
+    if (status === "ok") return c.json({ ok: true });
+    const error = status === "missing" ? "signing_key_missing" : "signing_key_mismatch";
+    return c.json({ ok: false, error });
   });
 
   app.get("/api/:app/admin/stats", async (c) => {

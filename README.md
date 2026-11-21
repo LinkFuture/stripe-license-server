@@ -270,7 +270,13 @@ curl -s -X POST "$LICENSE_API_BASE/api/admin/apps" \
   -d '{"slug":"myapp","name":"My App","key_prefix":"MYAPP","trial_days":30,"offline_grace_days":30}'
 ```
 
-`myapp` becomes `APP_KEY_MYAPP`. Store that PEM with `wrangler secret put APP_KEY_MYAPP --env dev` or `--env production`, matching the Worker you called.
+`myapp` becomes `APP_KEY_MYAPP`. Store that PEM with `wrangler secret put APP_KEY_MYAPP --env dev` or `--env production`, matching the Worker you called. Then confirm the secret matches the public key stored for that app:
+
+```bash
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "$LICENSE_API_BASE/api/myapp/admin/key-check"
+```
+
+`{"ok":true}` means the private key signs and the stored public key verifies that signature. `{"ok":false,"error":"signing_key_missing"}` means the secret is unset or blank. `{"ok":false,"error":"signing_key_mismatch"}` means the secret is present but is not the key for this app. Trial, activate, validate, and reset confirmation use the same check and return `500` with that `error` and no `token` until the secret matches.
 
 Non-secret numbers (trial length, offline grace, inactive-device window, reset quota, rate limits, reset-code lifetime) live in `server/src/config/`. `config.ts` holds the shared defaults. `config.dev.ts` and `config.production.ts` hold only numeric overrides. Wrangler selects the file at build time with `define.__APP_ENV__`: `"dev"` for local `wrangler dev`, tests, and `--env dev`; `"production"` for `--env production`. There is no runtime variable for those numbers.
 

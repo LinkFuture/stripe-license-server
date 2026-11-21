@@ -1,4 +1,5 @@
 import {
+  checkSigningKey,
   decryptSecret,
   hashCode,
   hashLicenseKey,
@@ -10,7 +11,7 @@ import { licenseEmail, resetCodeEmail } from "./email";
 import { hitLimit, limits } from "./rate-limit";
 import { signLicenseJwt, signTrialJwt } from "./tokens";
 import type { ActivationRow, AppRow, Env, LicenseRow, SendEmail, TrialRow } from "./types";
-import { addDays, emailOk, machineHashOk, normalizeMachineHash, nowIso, resolveMailFrom, resolveReplyTo, str, timingSafeEqual } from "./util";
+import { addDays, appPrivateKey, emailOk, machineHashOk, normalizeMachineHash, nowIso, resolveMailFrom, resolveReplyTo, str, timingSafeEqual } from "./util";
 
 export class HttpError extends Error {
   constructor(
@@ -23,9 +24,10 @@ export class HttpError extends Error {
 }
 
 async function requireSigningKey(env: Env, app: AppRow): Promise<string> {
-  const { appPrivateKey } = await import("./util");
   const key = appPrivateKey(env, app.slug);
-  if (!key) throw new HttpError(500, "signing_key_missing");
+  const status = await checkSigningKey(key, app.public_key, app.slug);
+  if (status === "missing") throw new HttpError(500, "signing_key_missing");
+  if (status !== "ok" || !key) throw new HttpError(500, "signing_key_mismatch");
   return key;
 }
 
@@ -81,12 +83,12 @@ export async function activate(opts: {
     throw new HttpError(429, "rate_limited");
   }
   assertActive(license);
+  const privateKey = await requireSigningKey(env, app);
   const machineName = str(body.machine_name, 128);
   const platform = str(body.platform, 64);
   const appVersion = str(body.app_version, 64);
   const rows = await listActivations(env.DB, license.id);
   const existing = rows.find((row) => row.machine_hash === hash);
-  const privateKey = await requireSigningKey(env, app);
   if (existing) {
     await touchActivation(env.DB, existing, { machineName, platform, appVersion }, now);
     const signed = await signLicenseJwt(env, app, privateKey, license.id, hash, license.max_machines, now);
@@ -154,6 +156,7 @@ export async function validate(opts: {
     .bind(license.id, hash)
     .first<ActivationRow>();
   if (!row) throw new HttpError(403, "not_activated");
+  const privateKey = await requireSigningKey(env, app);
   await touchActivation(
     env.DB,
     row,
@@ -168,7 +171,6 @@ export async function validate(opts: {
     ip,
     createdAt: nowIso(now),
   });
-  const privateKey = await requireSigningKey(env, app);
   const signed = await signLicenseJwt(env, app, privateKey, license.id, hash, license.max_machines, now);
   return {
     token: signed.token,
@@ -221,6 +223,7 @@ export async function startTrial(opts: {
   const machineHash = str(body.machine_hash, 80);
   if (!machineHash || !machineHashOk(machineHash)) throw new HttpError(400, "invalid_machine");
   const hash = normalizeMachineHash(machineHash);
+  const privateKey = await requireSigningKey(env, app);
   const platform = str(body.platform, 64);
   const appVersion = str(body.app_version, 64);
   let local: Date | null = null;
@@ -285,7 +288,6 @@ export async function startTrial(opts: {
     }
   }
 
-  const privateKey = await requireSigningKey(env, app);
   const token = await signTrialJwt(env, app, privateKey, trial.id, hash, trial.expires_at, now);
   return {
     token,
@@ -442,6 +444,7 @@ export async function confirmReset(opts: {
   const hash = normalizeMachineHash(machineHash);
   const { license } = await loadLicense(env.DB, app, body.key);
   assertActive(license);
+  const privateKey = await requireSigningKey(env, app);
   if (!env.LICENSE_ENCRYPTION_KEY) throw new HttpError(500, "encryption_key_missing");
   await assertResetAllowed(env.DB, app, license.id, now);
   const code = str(body.code, 12);
@@ -519,7 +522,6 @@ export async function confirmReset(opts: {
     detail: { via: "reset", machine_name: machineName, platform, app_version: appVersion },
     createdAt: nowIso(now),
   });
-  const privateKey = await requireSigningKey(env, app);
   const signed = await signLicenseJwt(env, app, privateKey, license.id, hash, license.max_machines, now);
   return {
     token: signed.token,

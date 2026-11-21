@@ -148,4 +148,30 @@ describe("licensing edges", () => {
     }), "invalid_key");
     expect(noKey.slug).toBe("nokey");
   });
+
+  it("refuses to sign when the app key is missing, blank, or from another app and does not write a new activation or trial", async () => {
+    const missing = await seedApp(env, { slug: "bare", prefix: "BARE", name: "Bare", includeKey: false });
+    const bare = await row("bare");
+    await handleCheckoutCompleted(missing.env, async () => undefined, {
+      id: "cs_bare",
+      customer_details: { email: "owner@example.com" },
+      metadata: { app: "bare", max_machines: "2" },
+      payment_intent: "pi_bare",
+    }, "1.1.1.1", NOW);
+    const enc = await env.DB.prepare(`SELECT key_enc FROM licenses WHERE stripe_session_id = 'cs_bare'`).first<{ key_enc: string }>();
+    const plain = await decryptSecret(enc!.key_enc, "test-encryption-key");
+    const fresh = "d".repeat(64);
+    const call = { ip: "1.1.1.1", now: NOW, body: { key: plain, machine_hash: fresh } };
+    await expectHttp(() => activate({ env: missing.env, app: bare, ...call }), "signing_key_missing");
+    await expectHttp(() => startTrial({ env: missing.env, app: bare, ip: "1.1.1.1", now: NOW, body: { machine_hash: fresh } }), "signing_key_missing");
+    const blank = extendEnv(missing.env, { APP_KEY_BARE: "" });
+    await expectHttp(() => activate({ env: blank, app: bare, ...call }), "signing_key_missing");
+    const other = await seedApp(env, { slug: "other", prefix: "OTHR", name: "Other" });
+    const mismatch = extendEnv(missing.env, { APP_KEY_BARE: other.privateKey });
+    await expectHttp(() => activate({ env: mismatch, app: bare, ...call }), "signing_key_mismatch");
+    const activations = await env.DB.prepare(`SELECT COUNT(*) AS c FROM activations`).first<{ c: number }>();
+    const trials = await env.DB.prepare(`SELECT COUNT(*) AS c FROM trials WHERE app_id = ?`).bind(bare.id).first<{ c: number }>();
+    expect(Number(activations?.c ?? 0)).toBe(0);
+    expect(Number(trials?.c ?? 0)).toBe(0);
+  });
 });

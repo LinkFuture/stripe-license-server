@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import { importSPKI, jwtVerify } from "jose";
 import { beforeEach, describe, expect, it } from "vitest";
+import { extendEnv } from "../../src/lib/util";
 import {
   emails,
   handler,
@@ -346,5 +347,74 @@ describe("recovery and reset", () => {
       machine_hash: M1,
     });
     expect(burned.body.error).toBe("invalid_code");
+  });
+});
+
+describe("signing key", () => {
+  it("returns signing_key_missing for a missing or blank key and does not create an activation or trial", async () => {
+    const missing = await seedApp(env, { includeKey: false });
+    const blank = await seedApp(env, {
+      slug: "blank",
+      prefix: "BLANK",
+      name: "Blank",
+      includeKey: false,
+      extra: { APP_KEY_BLANK: "   " },
+    });
+    const app = handler();
+    const hash = machine("e");
+    for (const seeded of [missing, blank]) {
+      const key = await issueKey(app, seeded, { sessionId: `cs_${seeded.slug}`, maxMachines: "1" });
+      const trial = await postJson(app, seeded.env, `/api/${seeded.slug}/licenses/trial`, { machine_hash: hash });
+      expect(trial.status).toBe(500);
+      expect(trial.body).toEqual({ error: "signing_key_missing" });
+      const activated = await postJson(app, seeded.env, `/api/${seeded.slug}/licenses/activate`, {
+        key,
+        machine_hash: hash,
+      });
+      expect(activated.status).toBe(500);
+      expect(activated.body).toEqual({ error: "signing_key_missing" });
+      expect(activated.body.token).toBeUndefined();
+    }
+    const trials = await env.DB.prepare(`SELECT COUNT(*) AS c FROM trials`).first<{ c: number }>();
+    const activations = await env.DB.prepare(`SELECT COUNT(*) AS c FROM activations`).first<{ c: number }>();
+    expect(num(trials?.c)).toBe(0);
+    expect(num(activations?.c)).toBe(0);
+  });
+
+  it("does not refresh or reset a machine when the signing key is missing or belongs to another app", async () => {
+    const seeded = await seedApp();
+    const other = await seedApp(seeded.env, { slug: "other", prefix: "OTHR", name: "Other" });
+    const app = handler();
+    const key = await issueKey(app, seeded, { sessionId: "cs_sign", maxMachines: "2" });
+    expect((await postJson(app, seeded.env, "/api/myapp/licenses/activate", { key, machine_hash: M1 })).status).toBe(200);
+    const seen = await env.DB.prepare(`SELECT last_seen_at FROM activations WHERE machine_hash = ?`).bind(M1).first<{ last_seen_at: string }>();
+
+    const blank = extendEnv(seeded.env, { APP_KEY_MYAPP: "" });
+    const validated = await postJson(app, blank, "/api/myapp/licenses/validate", { key, machine_hash: M1 });
+    expect(validated.status).toBe(500);
+    expect(validated.body).toEqual({ error: "signing_key_missing" });
+    const seenAfter = await env.DB.prepare(`SELECT last_seen_at FROM activations WHERE machine_hash = ?`).bind(M1).first<{ last_seen_at: string }>();
+    expect(seenAfter).toEqual(seen);
+
+    emails.length = 0;
+    expect((await postJson(app, seeded.env, "/api/myapp/licenses/reset/request", { key })).status).toBe(200);
+    const code = emails[0]?.text.match(/(\d{6})/)?.[1];
+    const confirmed = await postJson(app, blank, "/api/myapp/licenses/reset/confirm", {
+      key,
+      code,
+      machine_hash: M2,
+    });
+    expect(confirmed.status).toBe(500);
+    expect(confirmed.body).toEqual({ error: "signing_key_missing" });
+    const still = await env.DB.prepare(`SELECT machine_hash FROM activations`).all<{ machine_hash: string }>();
+    expect(still.results).toEqual([{ machine_hash: M1 }]);
+
+    const mismatch = extendEnv(seeded.env, { APP_KEY_MYAPP: other.privateKey });
+    const foreign = await postJson(app, mismatch, "/api/myapp/licenses/activate", { key, machine_hash: machine("f") });
+    expect(foreign.status).toBe(500);
+    expect(foreign.body).toEqual({ error: "signing_key_mismatch" });
+    expect(foreign.body.token).toBeUndefined();
+    const after = await env.DB.prepare(`SELECT COUNT(*) AS c FROM activations`).first<{ c: number }>();
+    expect(num(after?.c)).toBe(1);
   });
 });

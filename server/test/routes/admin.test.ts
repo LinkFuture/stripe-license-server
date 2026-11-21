@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { handler, machine, num, resetDb } from "../helpers/fixtures";
+import { extendEnv } from "../../src/lib/util";
+import { handler, machine, num, resetDb, seedApp } from "../helpers/fixtures";
 
 const M1 = machine("a");
 const M2 = machine("b");
@@ -260,6 +261,7 @@ describe("admin auth", () => {
       { method: "GET", path: "/api/admin/apps" },
       { method: "PATCH", path: "/api/admin/apps/myapp" },
       { method: "GET", path: "/api/myapp/admin/stats" },
+      { method: "GET", path: "/api/myapp/admin/key-check" },
       { method: "GET", path: "/api/myapp/admin/licenses" },
       { method: "POST", path: "/api/myapp/admin/licenses/1/revoke" },
       { method: "GET", path: "/api/myapp/admin/activations" },
@@ -275,6 +277,34 @@ describe("admin auth", () => {
       expect(missing.status, route.path).toBe(401);
       expect(wrong.status, route.path).toBe(401);
     }
+  });
+});
+
+describe("signing key check", () => {
+  it("reports a matching key, a missing key, and another app's key", async () => {
+    const mine = await seedApp();
+    const other = await seedApp(mine.env, { slug: "other", prefix: "OTHR", name: "Other" });
+    const bare = await seedApp(other.env, { slug: "bare", prefix: "BARE", name: "Bare", includeKey: false });
+    const app = handler();
+    const auth = { Authorization: "Bearer test-admin-token" };
+    const denied = await app.request("/api/myapp/admin/key-check", {}, mine.env);
+    expect(denied.status).toBe(401);
+
+    const ok = await app.request("/api/myapp/admin/key-check", { headers: auth }, mine.env);
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ ok: true });
+
+    const missing = await app.request("/api/bare/admin/key-check", { headers: auth }, bare.env);
+    expect(missing.status).toBe(200);
+    expect(await missing.json()).toEqual({ ok: false, error: "signing_key_missing" });
+
+    const mismatch = await app.request(
+      "/api/myapp/admin/key-check",
+      { headers: auth },
+      extendEnv(mine.env, { APP_KEY_MYAPP: other.privateKey }),
+    );
+    expect(mismatch.status).toBe(200);
+    expect(await mismatch.json()).toEqual({ ok: false, error: "signing_key_mismatch" });
   });
 });
 

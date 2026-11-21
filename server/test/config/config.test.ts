@@ -20,7 +20,8 @@ const SECRET_PATTERNS: { name: string; pattern: RegExp }[] = [
   { name: "live publishable key", pattern: /pk_live_/ },
   { name: "webhook secret", pattern: /whsec_/ },
   { name: "resend key", pattern: /\bre_[A-Za-z0-9]/ },
-  { name: "pem block", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ },
+  { name: "pem header", pattern: /-----BEGIN/ },
+  { name: "private key label", pattern: /BEGIN PRIVATE KEY/ },
   { name: "long base64", pattern: /[A-Za-z0-9+/]{80,}={0,2}/ },
 ];
 
