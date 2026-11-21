@@ -25,7 +25,20 @@ Cloudflare Worker (Hono) ---- D1 (SQLite)
 Host application
 ```
 
-- `server/` is a Cloudflare Worker. Public routes live under `/v1/{app}/`. Stripe posts to `/v1/stripe/webhook`. Operators call `/admin/*` with `Authorization: Bearer $ADMIN_TOKEN`.
+- `server/` is a Cloudflare Worker (`wrangler.toml` `main` is `src/index.ts`). Public routes live under `/v1/{app}/`. Stripe posts to `/v1/stripe/webhook`. Operators call `/admin/*` with `Authorization: Bearer $ADMIN_TOKEN`.
+
+### Repository layout
+
+```text
+server/src/
+  index.ts            Hono app wiring and the Worker default export
+  routes/
+    public.ts         trial, activate, validate, deactivate, recover, reset
+    stripe.ts         POST /v1/stripe/webhook
+    admin.ts          /admin/* 
+  lib/                crypto, JWT, keys, Stripe signatures, email, D1, rate limits, types
+packages/license-client/
+```
 - `packages/license-client/` is the npm package `@linkfuture/license-client`. It runs in a trusted Node.js process. It stores the key and the JWT through a storage adapter you provide.
 - Each app has its own slug, display name, key prefix, trial length, offline grace period, inactive-device window, reset quota, and Ed25519 key pair. The private key is a Worker secret named `APP_KEY_<SLUG>`. D1 stores only the public key.
 - There is no plans table and no manual “issue a key” API. Device limit is `licenses.max_machines`, copied from the Stripe Checkout Session metadata.

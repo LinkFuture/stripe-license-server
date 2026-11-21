@@ -1,5 +1,5 @@
 name = "stripe-license-server"
-main = "src/index.ts"
+main = "src/index.ts" # Worker entry: Hono app in src/index.ts
 compatibility_date = "2025-12-10"
 compatibility_flags = ["nodejs_compat"]
 

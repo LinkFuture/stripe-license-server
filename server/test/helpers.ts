@@ -1,8 +1,8 @@
 import { env } from "cloudflare:test";
-import { createAppHandler } from "../src/app";
-import { generateEd25519 } from "../src/crypto";
-import type { Env, OutboundEmail } from "../src/types";
-import { extendEnv } from "../src/util";
+import { createAppHandler } from "../src/index";
+import { generateEd25519 } from "../src/lib/crypto";
+import type { Env, OutboundEmail } from "../src/lib/types";
+import { extendEnv } from "../src/lib/util";
 
 export const emails: OutboundEmail[] = [];
 

@@ -1,8 +1,8 @@
 import { env } from "cloudflare:test";
 import { importSPKI, jwtVerify } from "jose";
 import { beforeEach, describe, expect, it } from "vitest";
-import { normalizeLicenseKey } from "../src/crypto";
-import { verifyStripeSignature } from "../src/stripe";
+import { normalizeLicenseKey } from "../src/lib/crypto";
+import { verifyStripeSignature } from "../src/lib/stripe";
 import {
   emails,
   handler,
