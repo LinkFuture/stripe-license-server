@@ -80,11 +80,19 @@ const acts = await listActivations(env, new URL("https://x.test/?app=okapp&email
 expect(acts.status).toBe(200);
 const license = await env.DB.prepare(`SELECT id FROM licenses WHERE stripe_session_id = 'cs_admin'`).first<{ id: number }>();
 expect((await revokeLicense(env, license!.id, "1.1.1.1", NOW, "missing")).status).toBe(404);
+const otherApp = await createApp(env, { slug: "otherapp", name: "Other", key_prefix: "OT", public_key: pair.publicKeyPem }, NOW);
+expect(otherApp.status).toBe(201);
+const beforeCross = await env.DB.prepare(`SELECT status, revoke_reason FROM licenses WHERE id = ?`).bind(license!.id).first<{ status: string; revoke_reason: string | null }>();
+expect((await revokeLicense(env, license!.id, "1.1.1.1", NOW, "otherapp")).status).toBe(404);
+const afterCross = await env.DB.prepare(`SELECT status, revoke_reason FROM licenses WHERE id = ?`).bind(license!.id).first<{ status: string; revoke_reason: string | null }>();
+expect(afterCross).toEqual(beforeCross);
 expect((await revokeLicense(env, license!.id, "1.1.1.1", NOW, "okapp")).status).toBe(200);
 expect((await revokeLicense(env, license!.id, "1.1.1.1", NOW, "okapp")).status).toBe(200);
 const inserted = await env.DB.prepare(
       `INSERT INTO activations (license_id, machine_hash, activated_at, last_seen_at) VALUES (?, ?, ?, ?) RETURNING id`,
     ).bind(license!.id, HASH, NOW.toISOString(), NOW.toISOString()).all<{ id: number }>();
+expect((await deleteActivation(env, inserted.results[0].id, "1.1.1.1", NOW, "otherapp")).status).toBe(404);
+expect((await env.DB.prepare(`SELECT id FROM activations WHERE id = ?`).bind(inserted.results[0].id).first<{ id: number }>())?.id).toBe(inserted.results[0].id);
 expect((await deleteActivation(env, inserted.results[0].id, "1.1.1.1", NOW, "okapp")).status).toBe(200);
 expect((await deleteActivation(env, 999, "1.1.1.1", NOW, "okapp")).status).toBe(404);
 const boom = {

@@ -278,6 +278,89 @@ describe("admin auth", () => {
   });
 });
 
+describe("cross-app admin isolation", () => {
+  it("does not revoke, unbind, list, or count another app's rows", async () => {
+    const now = new Date().toISOString();
+    await env.DB
+      .prepare(
+        `INSERT INTO apps (slug, name, key_prefix, public_key) VALUES
+         ('appa', 'App A', 'APPA', 'pk-a'),
+         ('appb', 'App B', 'APPB', 'pk-b')`,
+      )
+      .run();
+    const appA = await env.DB.prepare(`SELECT id FROM apps WHERE slug = 'appa'`).first<{ id: number }>();
+    const appB = await env.DB.prepare(`SELECT id FROM apps WHERE slug = 'appb'`).first<{ id: number }>();
+    const insertLicense = async (appId: number, session: string) => {
+      const inserted = await env.DB
+        .prepare(
+          `INSERT INTO licenses (app_id, key_hash, key_last4, key_enc, email, max_machines, stripe_session_id, status, created_at)
+           VALUES (?, ?, 'AAAA', 'enc', ?, 1, ?, 'active', ?) RETURNING id`,
+        )
+        .bind(appId, `hash-${session}`, `${session}@example.com`, session, now)
+        .all<{ id: number }>();
+      const row = inserted.results?.[0];
+      if (!row) throw new Error("license insert failed");
+      return row.id;
+    };
+    const licenseA = await insertLicense(appA!.id, "cs-a");
+    const licenseB = await insertLicense(appB!.id, "cs-b");
+    const activationA = await env.DB
+      .prepare(
+        `INSERT INTO activations (license_id, machine_hash, platform, app_version, activated_at, last_seen_at)
+         VALUES (?, ?, 'darwin', '1.0.0', ?, ?) RETURNING id`,
+      )
+      .bind(licenseA, M1, now, now)
+      .all<{ id: number }>();
+    const activationB = await env.DB
+      .prepare(
+        `INSERT INTO activations (license_id, machine_hash, platform, app_version, activated_at, last_seen_at)
+         VALUES (?, ?, 'linux', '2.0.0', ?, ?) RETURNING id`,
+      )
+      .bind(licenseB, M2, now, now)
+      .all<{ id: number }>();
+    const idB = activationB.results?.[0]?.id;
+    if (!idB) throw new Error("activation insert failed");
+
+    const app = handler();
+    const auth = { Authorization: "Bearer test-admin-token" };
+    const revoked = await app.request(`/api/appa/admin/licenses/${licenseB}/revoke`, { method: "POST", headers: auth }, env);
+    expect(revoked.status).toBe(404);
+    const stillLicensed = await env.DB
+      .prepare(`SELECT status, revoke_reason FROM licenses WHERE id = ?`)
+      .bind(licenseB)
+      .first<{ status: string; revoke_reason: string | null }>();
+    expect(stillLicensed).toEqual({ status: "active", revoke_reason: null });
+
+    const removed = await app.request(`/api/appa/admin/activations/${idB}`, { method: "DELETE", headers: auth }, env);
+    expect(removed.status).toBe(404);
+    const stillBound = await env.DB.prepare(`SELECT id FROM activations WHERE id = ?`).bind(idB).first<{ id: number }>();
+    expect(stillBound?.id).toBe(idB);
+
+    const licenses = await app.request("/api/appa/admin/licenses", { headers: auth }, env);
+    const licenseBody = (await licenses.json()) as { total: number; items: { id: number; email: string }[] };
+    expect(licenses.status).toBe(200);
+    expect(licenseBody.total).toBe(1);
+    expect(licenseBody.items.map((item) => item.id)).toEqual([licenseA]);
+    expect(licenseBody.items.map((item) => item.email)).toEqual(["cs-a@example.com"]);
+
+    const activations = await app.request("/api/appa/admin/activations", { headers: auth }, env);
+    const activationBody = (await activations.json()) as { total: number; items: { id: number; app: string }[] };
+    expect(activations.status).toBe(200);
+    expect(activationBody.total).toBe(1);
+    expect(activationBody.items.map((item) => item.id)).toEqual([activationA.results?.[0]?.id]);
+    expect(activationBody.items.map((item) => item.app)).toEqual(["appa"]);
+
+    const statsRes = await app.request("/api/appa/admin/stats", { headers: auth }, env);
+    const statsBody = (await statsRes.json()) as {
+      apps: { app: string; licenses: { total: number; active: number }; machines: { total: number } }[];
+    };
+    expect(statsRes.status).toBe(200);
+    expect(statsBody.apps.map((item) => item.app)).toEqual(["appa"]);
+    expect(statsBody.apps[0]?.licenses).toMatchObject({ total: 1, active: 1 });
+    expect(statsBody.apps[0]?.machines.total).toBe(1);
+  });
+});
+
 describe("reserved slug", () => {
   it("rejects a reserved slug on the admin route", async () => {
     const app = handler();

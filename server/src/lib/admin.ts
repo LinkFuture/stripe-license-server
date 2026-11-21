@@ -300,9 +300,10 @@ export async function revokeLicense(env: Env, id: number, ip: string, now: Date,
     const revokedAt = nowIso(now);
     await env.DB
       .prepare(
-        `UPDATE licenses SET status = 'revoked', revoked_at = ?, revoke_reason = 'admin' WHERE id = ?`,
+        `UPDATE licenses SET status = 'revoked', revoked_at = ?, revoke_reason = 'admin'
+         WHERE id = ? AND app_id = ?`,
       )
-      .bind(revokedAt, id)
+      .bind(revokedAt, id, license.app_id)
       .run();
     await logEvent(env.DB, {
       appId: license.app_id,
@@ -329,7 +330,14 @@ export async function deleteActivation(env: Env, id: number, ip: string, now: Da
     .bind(id, appSlug)
     .first<{ id: number; license_id: number; app_id: number; machine_hash: string }>();
   if (!row) return { status: 404 as const, body: { error: "not_found" } };
-  await env.DB.prepare(`DELETE FROM activations WHERE id = ?`).bind(id).run();
+  await env.DB
+    .prepare(
+      `DELETE FROM activations
+       WHERE id = ?
+         AND license_id IN (SELECT id FROM licenses WHERE app_id = ?)`,
+    )
+    .bind(id, row.app_id)
+    .run();
   await logEvent(env.DB, {
     appId: row.app_id,
     licenseId: row.license_id,
