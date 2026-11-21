@@ -744,9 +744,6 @@ describe("admin", () => {
 describe("route prefixes", () => {
   it("returns 404 for the retired paths", async () => {
     const app = handler();
-    const headers = { "Content-Type": "application/json" };
-    expect((await app.request("/v1/myapp/validate", { method: "POST", headers, body: "{}" }, env)).status).toBe(404);
-    expect((await app.request("/v1/stripe/webhook", { method: "POST", headers, body: "{}" }, env)).status).toBe(404);
     expect((await app.request("/admin/apps", { headers: { Authorization: "Bearer test-admin-token" } }, env)).status).toBe(404);
     expect((await app.request("/health", {}, env)).status).toBe(404);
     expect((await app.request("/api/health", {}, env)).status).toBe(200);

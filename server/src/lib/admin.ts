@@ -13,6 +13,7 @@ export async function adminAuthorized(env: Env, header: string | undefined): Pro
 
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 const PREFIX = /^[A-Z0-9]{2,12}$/;
+const RESERVED_SLUGS = new Set(["admin", "stripe", "health", "api"]);
 
 function mailFromInput(
   value: unknown,
@@ -38,6 +39,7 @@ export async function createApp(env: Env, body: Record<string, unknown>, now: Da
   const name = str(body.name, 120) ?? "";
   const keyPrefix = str(body.key_prefix, 12)?.toUpperCase() ?? "";
   if (!SLUG.test(slug)) return { status: 400 as const, body: { error: "invalid_slug" } };
+  if (RESERVED_SLUGS.has(slug)) return { status: 400 as const, body: { error: "reserved_slug" } };
   if (!name) return { status: 400 as const, body: { error: "invalid_name" } };
   if (!PREFIX.test(keyPrefix)) return { status: 400 as const, body: { error: "invalid_key_prefix" } };
   const trialDays = optInt(body.trial_days, 30, 0, 3650);

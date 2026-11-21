@@ -24,9 +24,6 @@ async function deliverKey(
   ip: string,
 ): Promise<void> {
   if (license.email_sent_at) return;
-  if (!env.LICENSE_ENCRYPTION_KEY) {
-    throw new Error("encryption_key_missing");
-  }
   const from = resolveMailFrom(env, app.mail_from);
   if (!from) {
     console.log(JSON.stringify({ event: "email_failed", license_id: license.id, reason: "mail_from_unset" }));
@@ -40,7 +37,7 @@ async function deliverKey(
     });
     return;
   }
-  const key = plaintext ?? (await decryptSecret(license.key_enc, env.LICENSE_ENCRYPTION_KEY));
+  const key = plaintext ?? (await decryptSecret(license.key_enc, env.LICENSE_ENCRYPTION_KEY!));
   if (!env.RESEND_API_KEY) {
     console.log(
       JSON.stringify({

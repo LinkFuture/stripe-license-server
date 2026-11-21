@@ -10,6 +10,18 @@ export default defineWorkersConfig(async () => {
     test: {
       setupFiles: ["./test/apply-migrations.ts"],
       testTimeout: 30000,
+      coverage: {
+        provider: "istanbul",
+        include: ["src/lib/**/*.ts"],
+        exclude: ["src/lib/types.ts"],
+        reporter: ["text", "json-summary"],
+        thresholds: {
+          lines: 100,
+          functions: 100,
+          statements: 98,
+          branches: 91,
+        },
+      },
       poolOptions: {
         workers: {
           wrangler: { configPath: "./wrangler.toml" },

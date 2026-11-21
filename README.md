@@ -222,7 +222,7 @@ Audit events include `license.issued`, `license.revoked`, `license.recovered`, `
 
 ## Stripe
 
-1. Create a Payment Link for a one-time price. Do not use subscription mode; subscriptions are out of scope for v1.
+1. Create a Payment Link for a one-time price. Do not use subscription mode; subscriptions are out of scope.
 2. On that Payment Link, set metadata. Stripe copies Payment Link metadata onto the Checkout Session, which is what the webhook reads.
 
 | Metadata key | Value |
@@ -245,7 +245,7 @@ Subscribe to:
 
 5. Put the endpoint signing secret in `STRIPE_WEBHOOK_SECRET`. The worker verifies `Stripe-Signature` with HMAC-SHA256 over `{timestamp}.{raw body}` and a 5-minute tolerance. Unsigned or stale events are rejected with 400.
 
-`STRIPE_SECRET_KEY` is reserved for a future Stripe API call. v1 only needs the webhook signing secret.
+`STRIPE_SECRET_KEY` is reserved for a future Stripe API call. Signature checks use the webhook signing secret.
 
 ## Deploy
 
@@ -318,7 +318,7 @@ npm run admin -- unbind myapp 34
 
 `GET /api/{app}/admin/licenses` and `GET /api/{app}/admin/activations` filter and paginate (`page`, 50 per page). License rows include `used_machines` and `max_machines`.
 
-Changing `max_machines` on an existing license (there is no self-serve upgrade in v1) is a direct SQL update. App settings such as `trial_days` can be changed with `PATCH /api/admin/apps/{slug}`.
+Changing `max_machines` on an existing license is a direct SQL update. There is no self-serve upgrade. App settings such as `trial_days` can be changed with `PATCH /api/admin/apps/{slug}`. Slugs `admin`, `stripe`, `health`, and `api` are reserved and cannot be registered.
 
 ## Continuous deployment
 
