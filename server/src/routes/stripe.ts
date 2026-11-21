@@ -9,7 +9,7 @@ export function mountStripeRoutes(
   app: Hono<{ Bindings: Env }>,
   deps: { send: SendEmail; now: () => Date },
 ): void {
-  app.post("/v1/stripe/webhook", async (c) => {
+  app.post("/api/stripe/webhook", async (c) => {
     const payload = await c.req.text();
     const header = c.req.header("stripe-signature");
     const ok = await verifyStripeSignature(payload, header, c.env.STRIPE_WEBHOOK_SECRET);

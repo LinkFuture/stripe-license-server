@@ -25,7 +25,7 @@ Cloudflare Worker (Hono) ---- D1 (SQLite)
 Host application
 ```
 
-- `server/` is a Cloudflare Worker (`wrangler.toml` `main` is `src/index.ts`). Public routes live under `/v1/{app}/`. Stripe posts to `/v1/stripe/webhook`. Operators call `/admin/*` with `Authorization: Bearer $ADMIN_TOKEN`.
+- `server/` is a Cloudflare Worker (`wrangler.toml` `main` is `src/index.ts`). License routes live under `/api/{app}/licenses/`. Stripe posts to `/api/stripe/webhook`. App registry is `/api/admin/apps`. Per-app operator routes are `/api/{app}/admin/*`, both with `Authorization: Bearer $ADMIN_TOKEN`.
 
 ### Repository layout
 
@@ -33,9 +33,9 @@ Host application
 server/src/
   index.ts            Hono app wiring and the Worker default export
   routes/
-    public.ts         trial, activate, validate, deactivate, recover, reset
-    stripe.ts         POST /v1/stripe/webhook
-    admin.ts          /admin/* 
+    licenses.ts       trial, activate, validate, deactivate, recover, reset
+    stripe.ts         POST /api/stripe/webhook
+    admin.ts          /api/admin/apps and /api/{app}/admin/*
   lib/                crypto, JWT, keys, Stripe signatures, email, D1, rate limits, types
 packages/license-client/
 ```
@@ -104,7 +104,7 @@ If the first launch is offline, the client starts the trial from the local insta
 
 Apply `server/migrations/0001_init.sql`. Timestamps are ISO-8601 UTC text.
 
-Per-app columns on `apps` (set on `POST /admin/apps` or `PATCH /admin/apps/{slug}`):
+Per-app columns on `apps` (set on `POST /api/admin/apps` or `PATCH /api/admin/apps/{slug}`):
 
 | Column | Default | Meaning |
 | --- | --- | --- |
@@ -234,7 +234,7 @@ Audit events include `license.issued`, `license.revoked`, `license.recovered`, `
 4. In the Stripe Dashboard (test mode first), add a webhook endpoint:
 
 ```text
-https://<your-worker-host>/v1/stripe/webhook
+https://<your-worker-host>/api/stripe/webhook
 ```
 
 Subscribe to:
@@ -271,7 +271,7 @@ npx wrangler deploy
 Register an app (this prints the Ed25519 private key once; it is not written to D1):
 
 ```bash
-curl -s -X POST "$LICENSE_API_BASE/admin/apps" \
+curl -s -X POST "$LICENSE_API_BASE/api/admin/apps" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"slug":"myapp","name":"My App","key_prefix":"MYAPP","trial_days":30,"offline_grace_days":30}'
@@ -297,7 +297,7 @@ Local database:
 npm run db:migrate:local -w server
 ```
 
-Verify the sending domain in Resend before mail from `MAIL_FROM` will be delivered. Follow [Resend’s domain verification](https://resend.com/docs/dashboard/domains/introduction) and add the records it shows. `MAIL_FROM` and `LICENSE_ISSUER` in `wrangler.toml` are placeholders. Replace them with your own values, or set the same names with `wrangler secret put` (a secret overrides the var). `POST /admin/apps` and `PATCH /admin/apps/{slug}` accept `mail_from` for one app; leave it empty to use `MAIL_FROM`. The value may include a display name: `My App <noreply@example.com>`.
+Verify the sending domain in Resend before mail from `MAIL_FROM` will be delivered. Follow [Resend’s domain verification](https://resend.com/docs/dashboard/domains/introduction) and add the records it shows. `MAIL_FROM` and `LICENSE_ISSUER` in `wrangler.toml` are placeholders. Replace them with your own values, or set the same names with `wrangler secret put` (a secret overrides the var). `POST /api/admin/apps` and `PATCH /api/admin/apps/{slug}` accept `mail_from` for one app; leave it empty to use `MAIL_FROM`. The value may include a display name: `My App <noreply@example.com>`.
 
 Sending through Resend from an address that already exists, such as `noreply@example.com`, is fine. Replies still arrive at the mailbox that address already uses. Leave the root domain’s current MX and SPF records unchanged. Resend’s SPF (TXT) and MX (bounce) records belong on the `send` subdomain, and the DKIM record (`resend._domainkey`) is added as Resend displays it. Those names do not overlap the records the existing mailbox provider uses, so both can stay in place.
 
@@ -306,19 +306,19 @@ Embed each app’s `public_key` in that app’s build. Customers only need the p
 ### Admin CLI
 
 ```bash
-LICENSE_API_BASE=https://license.example.com ADMIN_TOKEN=... npm run admin -- stats
+LICENSE_API_BASE=https://license.example.com ADMIN_TOKEN=... npm run admin -- apps
 LICENSE_API_BASE=https://license.example.com ADMIN_TOKEN=... npm run admin -- stats myapp
 npm run admin -- licenses myapp
 npm run admin -- activations myapp
-npm run admin -- revoke 12
-npm run admin -- unbind 34
+npm run admin -- revoke myapp 12
+npm run admin -- unbind myapp 34
 ```
 
-`GET /admin/stats` without `app` returns one breakdown per app: license totals, licenses grouped by `max_machines`, activated licenses, distinct buyer emails, machines by platform and app version, machines seen in the last 7 and 30 days, trial totals (running, expired, and trial machine hashes that later appear on an activation), and a 30-day daily trend of `trial.started`, `activation.created`, and `license.issued`.
+`GET /api/{app}/admin/stats` returns that app's numbers: license totals, licenses grouped by `max_machines`, activated licenses, distinct buyer emails, machines by platform and app version, machines seen in the last 7 and 30 days, trial totals (running, expired, and trial machine hashes that later appear on an activation), and a 30-day daily trend of `trial.started`, `activation.created`, and `license.issued`. Call it once per slug from `GET /api/admin/apps` to cover every app.
 
-`GET /admin/licenses` and `GET /admin/activations` filter and paginate (`page`, 50 per page). License rows include `used_machines` and `max_machines`.
+`GET /api/{app}/admin/licenses` and `GET /api/{app}/admin/activations` filter and paginate (`page`, 50 per page). License rows include `used_machines` and `max_machines`.
 
-Changing `max_machines` on an existing license (there is no self-serve upgrade in v1) is a direct SQL update. App settings such as `trial_days` can be changed with `PATCH /admin/apps/{slug}`.
+Changing `max_machines` on an existing license (there is no self-serve upgrade in v1) is a direct SQL update. App settings such as `trial_days` can be changed with `PATCH /api/admin/apps/{slug}`.
 
 ## Continuous deployment
 
@@ -393,13 +393,13 @@ Public routes (JSON, rate limited per IP; activate and recover are stricter, and
 
 | Method and path | Body | Result |
 | --- | --- | --- |
-| `POST /v1/{app}/trial` | `machine_hash`, optional `local_started_at`, `platform`, `app_version` | Trial window and trial JWT |
-| `POST /v1/{app}/activate` | `key`, `machine_hash`, `machine_name`, `platform`, `app_version` | License JWT, or `invalid_key`, `revoked`, `machine_limit_reached`, `app_disabled` |
-| `POST /v1/{app}/validate` | `key`, `machine_hash` | Refreshed JWT, or `revoked`, `not_activated` |
-| `POST /v1/{app}/deactivate` | `key`, `machine_hash` | Frees that slot |
-| `POST /v1/{app}/recover` | `email` | Always the same 200 body |
-| `POST /v1/{app}/reset-machines/request` | `key` | Emails a code, or `reset_limit_reached` |
-| `POST /v1/{app}/reset-machines/confirm` | `key`, `code`, `machine_hash`, optional device fields | Clears slots, activates this machine, returns a JWT |
+| `POST /api/{app}/licenses/trial` | `machine_hash`, optional `local_started_at`, `platform`, `app_version` | Trial window and trial JWT |
+| `POST /api/{app}/licenses/activate` | `key`, `machine_hash`, `machine_name`, `platform`, `app_version` | License JWT, or `invalid_key`, `revoked`, `machine_limit_reached`, `app_disabled` |
+| `POST /api/{app}/licenses/validate` | `key`, `machine_hash` | Refreshed JWT, or `revoked`, `not_activated` |
+| `POST /api/{app}/licenses/deactivate` | `key`, `machine_hash` | Frees that slot |
+| `POST /api/{app}/licenses/recover` | `email` | Always the same 200 body |
+| `POST /api/{app}/licenses/reset/request` | `key` | Emails a code, or `reset_limit_reached` |
+| `POST /api/{app}/licenses/reset/confirm` | `key`, `code`, `machine_hash`, optional device fields | Clears slots, activates this machine, returns a JWT |
 
 ## Development
 

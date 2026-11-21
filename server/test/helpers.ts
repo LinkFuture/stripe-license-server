@@ -131,7 +131,7 @@ export function checkoutPayload(opts: {
 export async function postWebhook(app: ReturnType<typeof handler>, runtime: Env, payload: string, secret = "whsec_test_secret", timestamp?: number): Promise<Response> {
   const signature = await stripeSignature(payload, secret, timestamp);
   return app.request(
-    "/v1/stripe/webhook",
+    "/api/stripe/webhook",
     {
       method: "POST",
       headers: { "Content-Type": "application/json", "Stripe-Signature": signature },

@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { sendEmail as defaultSendEmail } from "./lib/email";
 import type { AppDeps, Env } from "./lib/types";
 import { mountAdminRoutes } from "./routes/admin";
-import { mountPublicRoutes } from "./routes/public";
+import { mountLicenseRoutes } from "./routes/licenses";
 import { mountStripeRoutes } from "./routes/stripe";
 
 export function createAppHandler(deps: AppDeps = {}) {
@@ -18,10 +18,10 @@ export function createAppHandler(deps: AppDeps = {}) {
     return c.json({ error: "internal" }, 500);
   });
 
-  app.get("/health", (c) => c.json({ ok: true }));
+  app.get("/api/health", (c) => c.json({ ok: true }));
 
   mountStripeRoutes(app, { send, now });
-  mountPublicRoutes(app, { send, now });
+  mountLicenseRoutes(app, { send, now });
   mountAdminRoutes(app, { now });
 
   return app;

@@ -394,7 +394,9 @@ export class LicenseClient {
   ): Promise<{ ok: true; status: number; body: Record<string, unknown> } | { ok: false; status: number; error: string; body: unknown }> {
     let response: Response;
     try {
-      response = await this.fetchImpl(`${this.base}/v1/${encodeURIComponent(this.options.appSlug)}${path}`, {
+      response = await this.fetchImpl(
+        `${this.base}/api/${encodeURIComponent(this.options.appSlug)}/licenses${path}`,
+        {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

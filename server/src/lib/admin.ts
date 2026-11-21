@@ -282,10 +282,14 @@ export async function listActivations(env: Env, url: URL) {
   };
 }
 
-export async function revokeLicense(env: Env, id: number, ip: string, now: Date) {
+export async function revokeLicense(env: Env, id: number, ip: string, now: Date, appSlug: string) {
   const license = await env.DB
-    .prepare(`SELECT * FROM licenses WHERE id = ?`)
-    .bind(id)
+    .prepare(
+      `SELECT licenses.id, licenses.app_id, licenses.status
+       FROM licenses JOIN apps ON apps.id = licenses.app_id
+       WHERE licenses.id = ? AND apps.slug = ?`,
+    )
+    .bind(id, appSlug)
     .first<{ id: number; app_id: number; status: string }>();
   if (!license) return { status: 404 as const, body: { error: "not_found" } };
   if (license.status !== "revoked") {
@@ -309,14 +313,16 @@ export async function revokeLicense(env: Env, id: number, ip: string, now: Date)
   return { status: 200 as const, body: { license: updated } };
 }
 
-export async function deleteActivation(env: Env, id: number, ip: string, now: Date) {
+export async function deleteActivation(env: Env, id: number, ip: string, now: Date, appSlug: string) {
   const row = await env.DB
     .prepare(
       `SELECT activations.*, licenses.app_id AS app_id
-       FROM activations JOIN licenses ON licenses.id = activations.license_id
-       WHERE activations.id = ?`,
+       FROM activations
+       JOIN licenses ON licenses.id = activations.license_id
+       JOIN apps ON apps.id = licenses.app_id
+       WHERE activations.id = ? AND apps.slug = ?`,
     )
-    .bind(id)
+    .bind(id, appSlug)
     .first<{ id: number; license_id: number; app_id: number; machine_hash: string }>();
   if (!row) return { status: 404 as const, body: { error: "not_found" } };
   await env.DB.prepare(`DELETE FROM activations WHERE id = ?`).bind(id).run();

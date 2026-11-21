@@ -34,20 +34,20 @@ async function load(c: Context<{ Bindings: Env }>) {
   return { app: row };
 }
 
-export function mountPublicRoutes(
+export function mountLicenseRoutes(
   app: Hono<{ Bindings: Env }>,
   deps: { send: SendEmail; now: () => Date },
 ): void {
   const nowFn = deps.now;
 
-  app.use("/v1/:app/*", async (c, next) => {
+  app.use("/api/:app/licenses/*", async (c, next) => {
     const lim = limits(c.env);
     const blocked = await hitLimit(c.env.DB, `ip:${clientIp(c)}`, lim.ipPerMin, 60, nowFn());
     if (blocked) return jsonError(c, 429, "rate_limited");
     await next();
   });
 
-  app.post("/v1/:app/trial", async (c) => {
+  app.post("/api/:app/licenses/trial", async (c) => {
     const loaded = await load(c);
     if ("error" in loaded && loaded.error) return loaded.error;
     const body = await readJson(c);
@@ -57,7 +57,7 @@ export function mountPublicRoutes(
     );
   });
 
-  app.post("/v1/:app/activate", async (c) => {
+  app.post("/api/:app/licenses/activate", async (c) => {
     const loaded = await load(c);
     if ("error" in loaded && loaded.error) return loaded.error;
     const body = await readJson(c);
@@ -85,7 +85,7 @@ export function mountPublicRoutes(
     );
   });
 
-  app.post("/v1/:app/validate", async (c) => {
+  app.post("/api/:app/licenses/validate", async (c) => {
     const loaded = await load(c);
     if ("error" in loaded && loaded.error) return loaded.error;
     const body = await readJson(c);
@@ -95,7 +95,7 @@ export function mountPublicRoutes(
     );
   });
 
-  app.post("/v1/:app/deactivate", async (c) => {
+  app.post("/api/:app/licenses/deactivate", async (c) => {
     const loaded = await load(c);
     if ("error" in loaded && loaded.error) return loaded.error;
     const body = await readJson(c);
@@ -105,7 +105,7 @@ export function mountPublicRoutes(
     );
   });
 
-  app.post("/v1/:app/recover", async (c) => {
+  app.post("/api/:app/licenses/recover", async (c) => {
     const row = await getAppBySlug(c.env.DB, c.req.param("app") ?? "");
     if (!row) return jsonError(c, 404, "app_not_found");
     const body = await readJson(c);
@@ -121,7 +121,7 @@ export function mountPublicRoutes(
     );
   });
 
-  app.post("/v1/:app/reset-machines/request", async (c) => {
+  app.post("/api/:app/licenses/reset/request", async (c) => {
     const loaded = await load(c);
     if ("error" in loaded && loaded.error) return loaded.error;
     const body = await readJson(c);
@@ -134,7 +134,7 @@ export function mountPublicRoutes(
     );
   });
 
-  app.post("/v1/:app/reset-machines/confirm", async (c) => {
+  app.post("/api/:app/licenses/reset/confirm", async (c) => {
     const loaded = await load(c);
     if ("error" in loaded && loaded.error) return loaded.error;
     const body = await readJson(c);
